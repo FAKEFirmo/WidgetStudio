@@ -14,6 +14,10 @@ D2D1_COLOR_F Color(float r, float g, float b, float a = 1.0f) {
 
 HRESULT Renderer::Initialize(HWND hwnd) {
     hwnd_ = hwnd;
+    dpi_ = static_cast<float>(GetDpiForWindow(hwnd_));
+    if (dpi_ <= 0.0f) {
+        dpi_ = 96.0f;
+    }
 
     HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2dFactory_.GetAddressOf());
     if (FAILED(hr)) return hr;
@@ -64,8 +68,10 @@ HRESULT Renderer::Initialize(HWND hwnd) {
         smallFormat_.GetAddressOf());
     if (FAILED(hr)) return hr;
 
-    labelFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    smallFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    hr = labelFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (FAILED(hr)) return hr;
+    hr = smallFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (FAILED(hr)) return hr;
 
     hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
@@ -91,15 +97,26 @@ HRESULT Renderer::CreateDeviceResources() {
         static_cast<UINT32>(std::max<LONG>(1, rc.right - rc.left)),
         static_cast<UINT32>(std::max<LONG>(1, rc.bottom - rc.top)));
 
-    return d2dFactory_->CreateHwndRenderTarget(
+    const HRESULT hr = d2dFactory_->CreateHwndRenderTarget(
         D2D1::RenderTargetProperties(),
         D2D1::HwndRenderTargetProperties(hwnd_, size),
         renderTarget_.GetAddressOf());
+    if (SUCCEEDED(hr)) {
+        renderTarget_->SetDpi(dpi_, dpi_);
+    }
+    return hr;
 }
 
 HRESULT Renderer::Resize(UINT width, UINT height) {
     if (!renderTarget_) return S_OK;
     return renderTarget_->Resize(D2D1::SizeU(std::max(1u, width), std::max(1u, height)));
+}
+
+void Renderer::SetDpi(float dpi) noexcept {
+    dpi_ = dpi > 0.0f ? dpi : 96.0f;
+    if (renderTarget_) {
+        renderTarget_->SetDpi(dpi_, dpi_);
+    }
 }
 
 HRESULT Renderer::ReloadWallpaper() {
@@ -339,10 +356,12 @@ HRESULT Renderer::Render(
     hr = renderTarget_->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {
         DiscardDeviceResources();
-        hr = CreateDeviceResources();
-        if (SUCCEEDED(hr)) {
-            ReloadWallpaper();
+        const HRESULT recreateResult = CreateDeviceResources();
+        if (FAILED(recreateResult)) {
+            return recreateResult;
         }
+        ReloadWallpaper();
+        return D2DERR_RECREATE_TARGET;
     }
     return hr;
 }

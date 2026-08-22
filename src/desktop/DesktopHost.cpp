@@ -1,5 +1,6 @@
 #include "desktop/DesktopHost.h"
 
+#include <algorithm>
 #include <windowsx.h>
 
 namespace ws {
@@ -10,6 +11,12 @@ constexpr wchar_t kWindowTitle[] = L"Widget Studio - Development Host";
 constexpr int kHotkeyToggleEdit = 1;
 
 } // namespace
+
+DesktopHost::~DesktopHost() {
+    if (hwnd_ && IsWindow(hwnd_)) {
+        DestroyWindow(hwnd_);
+    }
+}
 
 bool DesktopHost::RegisterWindowClass(HINSTANCE instance) {
     WNDCLASSEXW wc{};
@@ -48,14 +55,20 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         return false;
     }
 
+    dpi_ = std::max(96u, GetDpiForWindow(hwnd_));
     if (FAILED(renderer_.Initialize(hwnd_))) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
     }
 
-    tray_.Initialize(hwnd_);
-    RegisterHotKey(hwnd_, kHotkeyToggleEdit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'W');
+    if (!tray_.Initialize(hwnd_) ||
+        !RegisterHotKey(hwnd_, kHotkeyToggleEdit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'W')) {
+        tray_.Shutdown();
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
+        return false;
+    }
 
     UpdateMetrics();
     ShowWindow(hwnd_, showCommand);
@@ -65,11 +78,17 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
 
 int DesktopHost::RunMessageLoop() {
     MSG message{};
-    while (GetMessageW(&message, nullptr, 0, 0) > 0) {
+    while (true) {
+        const BOOL status = GetMessageW(&message, nullptr, 0, 0);
+        if (status == -1) {
+            return 1;
+        }
+        if (status == 0) {
+            return static_cast<int>(message.wParam);
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
-    return static_cast<int>(message.wParam);
 }
 
 LRESULT CALLBACK DesktopHost::WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -85,25 +104,32 @@ LRESULT CALLBACK DesktopHost::WindowProc(HWND hwnd, UINT message, WPARAM wParam,
     }
 
     if (self) {
-        return self->HandleMessage(message, wParam, lParam);
+        const LRESULT result = self->HandleMessage(message, wParam, lParam);
+        if (message == WM_NCDESTROY) {
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+            self->hwnd_ = nullptr;
+        }
+        return result;
     }
     return DefWindowProcW(hwnd, message, wParam, lParam);
 }
 
 PointF DesktopHost::ClientPointFromLParam(LPARAM lParam) const noexcept {
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi_));
     return PointF{
-        static_cast<float>(GET_X_LPARAM(lParam)),
-        static_cast<float>(GET_Y_LPARAM(lParam)),
+        static_cast<float>(GET_X_LPARAM(lParam)) * pixelsToDips,
+        static_cast<float>(GET_Y_LPARAM(lParam)) * pixelsToDips,
     };
 }
 
 void DesktopHost::UpdateMetrics() {
     if (!hwnd_) return;
     RECT rc{};
-    GetClientRect(hwnd_, &rc);
+    if (!GetClientRect(hwnd_, &rc)) return;
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi_));
     metrics_ = grid_.Calculate(SizeF{
-        static_cast<float>(rc.right - rc.left),
-        static_cast<float>(rc.bottom - rc.top),
+        static_cast<float>(rc.right - rc.left) * pixelsToDips,
+        static_cast<float>(rc.bottom - rc.top) * pixelsToDips,
     });
 }
 
@@ -153,8 +179,11 @@ void DesktopHost::EndDrag() {
 void DesktopHost::Paint() {
     PAINTSTRUCT ps{};
     BeginPaint(hwnd_, &ps);
-    renderer_.Render(scene_, grid_, metrics_, editMode_);
+    const HRESULT renderResult = renderer_.Render(scene_, grid_, metrics_, editMode_);
     EndPaint(hwnd_, &ps);
+    if (renderResult == D2DERR_RECREATE_TARGET) {
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
 }
 
 LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
@@ -166,6 +195,8 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_DPICHANGED: {
+        dpi_ = std::max(96u, static_cast<UINT>(HIWORD(wParam)));
+        renderer_.SetDpi(static_cast<float>(dpi_));
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(
             hwnd_,
@@ -204,7 +235,10 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
         const bool additive = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
         scene_.Select(*hit, additive);
-        BeginDrag(*hit, point);
+        const WidgetInstance* selected = scene_.Find(*hit);
+        if (selected && selected->selected) {
+            BeginDrag(*hit, point);
+        }
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
     }
@@ -212,6 +246,8 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_MOUSEMOVE:
         if (editMode_ && drag_ && (wParam & MK_LBUTTON)) {
             UpdateDrag(ClientPointFromLParam(lParam));
+        } else if (drag_ && !(wParam & MK_LBUTTON)) {
+            EndDrag();
         }
         return 0;
 

@@ -22,6 +22,7 @@ public:
     HRESULT Initialize(HWND hwnd);
     void DiscardDeviceResources() noexcept;
     HRESULT Resize(UINT width, UINT height);
+    void SetDpi(float dpi) noexcept;
 
     HRESULT ReloadWallpaper();
 
@@ -44,6 +45,7 @@ private:
     D2D1_RECT_F ToD2D(RectF rect) const noexcept;
 
     HWND hwnd_{};
+    float dpi_{96.0f};
 
     Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory_;
     Microsoft::WRL::ComPtr<IDWriteFactory> dwriteFactory_;

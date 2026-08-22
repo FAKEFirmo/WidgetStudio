@@ -15,7 +15,7 @@ namespace ws {
 class DesktopHost {
 public:
     DesktopHost() = default;
-    ~DesktopHost() = default;
+    ~DesktopHost();
 
     bool Create(HINSTANCE instance, int showCommand);
     int RunMessageLoop();
@@ -42,6 +42,7 @@ private:
 
     HINSTANCE instance_{};
     HWND hwnd_{};
+    UINT dpi_{96};
     bool editMode_{true};
 
     Renderer renderer_{};
