@@ -1,0 +1,27 @@
+#pragma once
+
+#include <windows.h>
+#include <shellapi.h>
+
+namespace ws {
+
+class TrayController {
+public:
+    static constexpr UINT kTrayCallbackMessage = WM_APP + 10;
+    static constexpr UINT kCommandToggleEdit = 40001;
+    static constexpr UINT kCommandExit = 40002;
+
+    TrayController() = default;
+    ~TrayController();
+
+    bool Initialize(HWND owner);
+    void Shutdown() noexcept;
+    void ShowContextMenu(bool editMode);
+
+private:
+    HWND owner_{};
+    NOTIFYICONDATAW data_{};
+    bool initialized_{false};
+};
+
+} // namespace ws
