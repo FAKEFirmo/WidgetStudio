@@ -13,10 +13,10 @@ If you choose to enable Windows Sandbox later, do that explicitly through Window
 1. Ensure `out\sandbox` exists; it is included in the repository.
 2. Double-click `tools\dev-env\WidgetStudio.wsb`.
 3. Wait for the PowerShell window inside the sandbox to finish.
-4. Read `out\sandbox\bootstrap.log` on the host.
+4. Read `out\sandbox\bootstrap.log`, `smoke-report.json`, and `performance-report.json` on the host.
 5. Find Debug artifacts under `out\sandbox\Debug`, Release artifacts under `out\sandbox\Release`, and the portable package under `out\sandbox\dist\WidgetStudio`.
 
-The sandbox downloads the official Visual Studio 2022 Build Tools bootstrapper from Microsoft and installs the C++ workload only inside the disposable VM. It configures with the Visual Studio 2022 x64 generator, builds Debug, runs CTest, builds Release, creates the portable package, and copies application artifacts to the mapped output directory.
+The sandbox downloads the official Visual Studio 2022 Build Tools bootstrapper from Microsoft and installs the C++ workload only inside the disposable VM. It configures with the Visual Studio 2022 x64 generator, builds Debug, runs CTest, builds Release, creates the portable package, verifies that the packaged app creates a window and remains alive, then samples warm-idle CPU, memory, thread count, and TCP connections. Reports and application artifacts are copied to the mapped output directory.
 
 ## Cleanup
 

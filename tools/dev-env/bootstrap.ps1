@@ -53,6 +53,15 @@ try {
         -OutputPath (Join-Path $outputPath 'dist') `
         -CMakePath 'C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
 
+    $releaseExecutable = Join-Path $outputPath 'dist\WidgetStudio\WidgetStudio.exe'
+    & (Join-Path $sourcePath 'tools\dev-env\smoke.ps1') `
+        -ExecutablePath $releaseExecutable `
+        -ReportPath (Join-Path $outputPath 'smoke-report.json')
+
+    & (Join-Path $sourcePath 'tools\dev-env\performance.ps1') `
+        -ExecutablePath $releaseExecutable `
+        -ReportPath (Join-Path $outputPath 'performance-report.json')
+
     Write-Host 'WidgetStudio sandbox build and tests completed.'
     Write-Host "Artifacts were copied to $outputPath on the host mapping."
 } finally {
