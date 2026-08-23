@@ -22,10 +22,12 @@ private:
     LRESULT HandleMessage(UINT message, WPARAM wParam, LPARAM lParam);
     void CreateSelectedWidget();
     void UpdateDescription();
+    void LayoutControls(int width, int height);
 
     HWND hwnd_{};
     HWND list_{};
     HWND description_{};
+    HWND add_{};
     const WidgetRegistry* registry_{};
     std::function<void(std::string)> createWidget_;
 };

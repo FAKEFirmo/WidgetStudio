@@ -212,8 +212,10 @@ bool WidgetStudioWindow::CreateControls() {
 }
 
 void WidgetStudioWindow::LayoutControls(int width, int height) {
-    const int margin = 16;
-    const int previewHeight = std::clamp(height * 58 / 100, 280, 470);
+    const float dpiScale = static_cast<float>(std::max(96u, GetDpiForWindow(hwnd_))) / 96.0f;
+    const int margin = static_cast<int>(16.0f * dpiScale);
+    const int previewHeight = std::clamp(height * 58 / 100,
+        static_cast<int>(280.0f * dpiScale), static_cast<int>(470.0f * dpiScale));
     MoveWindow(preview_, margin, margin, std::max(1, width - margin * 2), previewHeight, TRUE);
     std::vector<HWND> children;
     for (HWND child = GetWindow(hwnd_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
@@ -224,32 +226,39 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     int y = previewHeight + margin * 2;
     int valueX = 0;
     int valueY = 0;
-    constexpr int labelWidth = 105;
-    constexpr int editWidth = 72;
+    const int labelWidth = static_cast<int>(105.0f * dpiScale);
+    const int editWidth = static_cast<int>(72.0f * dpiScale);
+    const int standardHeight = static_cast<int>(26.0f * dpiScale);
+    const int comboHeight = static_cast<int>(220.0f * dpiScale);
+    const int gap = static_cast<int>(7.0f * dpiScale);
     for (HWND child : children) {
         if (child == widgetValue_) {
             valueX = x;
             valueY = y;
-            MoveWindow(child, valueX, valueY, 155, 26, TRUE);
+            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), standardHeight, TRUE);
             continue;
         }
         if (child == widgetChoice_) {
-            MoveWindow(child, valueX, valueY, 155, 200, TRUE);
+            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), comboHeight, TRUE);
             continue;
         }
         if (child == widgetCheck_) {
-            MoveWindow(child, valueX, valueY, 155, 26, TRUE);
-            x += 162;
+            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), standardHeight, TRUE);
+            x += static_cast<int>(162.0f * dpiScale);
             continue;
         }
         wchar_t className[32]{};
         GetClassNameW(child, className, static_cast<int>(std::size(className)));
         int controlWidth = wcscmp(className, L"STATIC") == 0 ? labelWidth : editWidth;
-        if (wcscmp(className, L"BUTTON") == 0) controlWidth = 145;
-        if (wcscmp(className, L"COMBOBOX") == 0) controlWidth = 155;
-        if (x + controlWidth > width - margin) { x = margin; y += 34; }
-        MoveWindow(child, x, y, controlWidth, 26, TRUE);
-        x += controlWidth + 7;
+        if (wcscmp(className, L"BUTTON") == 0) controlWidth = static_cast<int>(145.0f * dpiScale);
+        if (wcscmp(className, L"COMBOBOX") == 0) controlWidth = static_cast<int>(155.0f * dpiScale);
+        if (x + controlWidth > width - margin) {
+            x = margin;
+            y += static_cast<int>(34.0f * dpiScale);
+        }
+        const int controlHeight = wcscmp(className, L"COMBOBOX") == 0 ? comboHeight : standardHeight;
+        MoveWindow(child, x, y, controlWidth, controlHeight, TRUE);
+        x += controlWidth + gap;
     }
 }
 
@@ -454,6 +463,13 @@ void WidgetStudioWindow::NotifySceneChanged() {
 LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
     case WM_CREATE: return CreateControls() ? 0 : -1;
+    case WM_GETMINMAXINFO: {
+        const float scale = static_cast<float>(std::max(96u, GetDpiForWindow(hwnd_))) / 96.0f;
+        auto* bounds = reinterpret_cast<MINMAXINFO*>(lParam);
+        bounds->ptMinTrackSize.x = static_cast<LONG>(760.0f * scale);
+        bounds->ptMinTrackSize.y = static_cast<LONG>(650.0f * scale);
+        return 0;
+    }
     case WM_SIZE: LayoutControls(LOWORD(lParam), HIWORD(lParam)); UpdatePreviewMetrics(); return 0;
     case WM_DPICHANGED: {
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);

@@ -16,7 +16,7 @@ namespace ws {
 namespace {
 
 constexpr wchar_t kWindowClassName[] = L"WidgetStudioHostWindow";
-constexpr wchar_t kWindowTitle[] = L"Widget Studio - Development Host";
+constexpr wchar_t kWindowTitle[] = L"WidgetStudio";
 constexpr int kHotkeyToggleEdit = 1;
 constexpr UINT_PTR kWidgetUpdateTimer = 2;
 constexpr UINT kMediaSessionChangedMessage = WM_APP + 12;
