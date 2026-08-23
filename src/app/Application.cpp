@@ -1,6 +1,6 @@
 #include "app/Application.h"
 #include "desktop/DesktopHost.h"
-#include "widgets/DebugWidget.h"
+#include "widgets/BuiltInWidgets.h"
 #include "widgets/WidgetRegistry.h"
 
 #include <objbase.h>
@@ -36,9 +36,8 @@ int Application::Run(HINSTANCE instance, int showCommand) {
         // Keep every COM-owning subsystem inside this scope so its interfaces
         // are released before the matching CoUninitialize call.
         WidgetRegistry registry;
-        RegisterBuiltInWidgets(registry);
-        if (registry.Descriptors().empty()) {
-            MessageBoxW(nullptr, L"Widget Studio has no registered widget types.",
+        if (!RegisterBuiltInWidgets(registry)) {
+            MessageBoxW(nullptr, L"Widget Studio could not register its built-in widget types.",
                         L"Widget Studio", MB_OK | MB_ICONERROR);
             if (comInitialized) CoUninitialize();
             return 1;

@@ -50,6 +50,7 @@ private:
     void TogglePrimaryWidgetLock();
     [[nodiscard]] SceneLoadStatus LoadScene();
     void SaveScene();
+    void ScheduleNextWidgetUpdate();
     [[nodiscard]] std::wstring ActiveMonitorId() const;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;

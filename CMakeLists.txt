@@ -14,10 +14,13 @@ add_executable(WidgetStudio WIN32
     src/app/WidgetLibraryWindow.cpp
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
+    src/layout/AuthoredContentLayout.cpp
     src/persistence/SceneJsonCodec.cpp
     src/persistence/SceneStore.cpp
     src/rendering/Renderer.cpp
     src/scene/WidgetScene.cpp
+    src/widgets/BuiltInWidgets.cpp
+    src/widgets/ClockWidget.cpp
     src/widgets/DebugWidget.cpp
     src/widgets/WidgetRegistry.cpp
 )
@@ -51,9 +54,11 @@ if(BUILD_TESTING)
     add_executable(WidgetStudioLogicTests
         tests/LogicTests.cpp
         src/layout/GridLayout.cpp
+        src/layout/AuthoredContentLayout.cpp
         src/persistence/SceneJsonCodec.cpp
         src/persistence/SceneStore.cpp
         src/scene/WidgetScene.cpp
+        src/widgets/ClockWidget.cpp
         src/widgets/WidgetRegistry.cpp
     )
     target_include_directories(WidgetStudioLogicTests PRIVATE src)
@@ -68,6 +73,6 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(WidgetStudioLogicTests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
-    target_link_libraries(WidgetStudioLogicTests PRIVATE shell32 ole32)
+    target_link_libraries(WidgetStudioLogicTests PRIVATE d2d1 dwrite shell32 ole32)
     add_test(NAME WidgetStudioLogicTests COMMAND WidgetStudioLogicTests)
 endif()

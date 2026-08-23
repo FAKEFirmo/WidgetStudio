@@ -1,6 +1,8 @@
 #include "desktop/DesktopHost.h"
 
 #include <algorithm>
+#include <chrono>
+#include <limits>
 #include <windowsx.h>
 
 namespace ws {
@@ -9,6 +11,7 @@ namespace {
 constexpr wchar_t kWindowClassName[] = L"WidgetStudioHostWindow";
 constexpr wchar_t kWindowTitle[] = L"Widget Studio - Development Host";
 constexpr int kHotkeyToggleEdit = 1;
+constexpr UINT_PTR kWidgetUpdateTimer = 2;
 
 } // namespace
 
@@ -78,8 +81,9 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     UpdateMetrics();
     const SceneLoadStatus loadStatus = LoadScene();
     if (loadStatus != SceneLoadStatus::Loaded) {
-        CreateWidget("debug", loadStatus == SceneLoadStatus::Missing);
+        CreateWidget("clock", loadStatus == SceneLoadStatus::Missing);
     }
+    ScheduleNextWidgetUpdate();
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
     return true;
@@ -175,6 +179,7 @@ void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
     if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
     SetEditMode(true);
     if (persist) SaveScene();
+    ScheduleNextWidgetUpdate();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -190,6 +195,7 @@ void DesktopHost::DeleteSelectedWidgets() {
     EndDrag();
     if (scene_.RemoveSelectedWidgets() > 0) {
         SaveScene();
+        ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
@@ -198,6 +204,7 @@ void DesktopHost::DuplicatePrimaryWidget() {
     const auto primary = scene_.PrimarySelection();
     if (primary && scene_.DuplicateWidget(*primary)) {
         SaveScene();
+        ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
@@ -243,6 +250,23 @@ void DesktopHost::SaveScene() {
         MessageBoxW(hwnd_, message.c_str(), L"Widget Studio", MB_OK | MB_ICONWARNING);
         persistenceErrorShown_ = true;
     }
+}
+
+void DesktopHost::ScheduleNextWidgetUpdate() {
+    if (!hwnd_) return;
+    KillTimer(hwnd_, kWidgetUpdateTimer);
+    std::optional<std::chrono::system_clock::time_point> nextUpdate;
+    for (const auto& widget : scene_.Widgets()) {
+        if (!widget.content) continue;
+        const auto candidate = widget.content->NextUpdateTime();
+        if (candidate && (!nextUpdate || *candidate < *nextUpdate)) nextUpdate = candidate;
+    }
+    if (!nextUpdate) return;
+    const auto now = std::chrono::system_clock::now();
+    const auto remaining = std::chrono::ceil<std::chrono::milliseconds>(*nextUpdate - now).count();
+    const auto delay = static_cast<UINT>(std::clamp<long long>(
+        remaining, USER_TIMER_MINIMUM, static_cast<long long>(std::numeric_limits<UINT>::max())));
+    SetTimer(hwnd_, kWidgetUpdateTimer, delay, nullptr);
 }
 
 void DesktopHost::UpdateDrag(PointF pointer) {
@@ -307,8 +331,22 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_SETTINGCHANGE:
         renderer_.ReloadWallpaper();
+        ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
+
+    case WM_TIMECHANGE:
+        ScheduleNextWidgetUpdate();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return 0;
+
+    case WM_TIMER:
+        if (wParam == kWidgetUpdateTimer) {
+            ScheduleNextWidgetUpdate();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        break;
 
     case WM_PAINT:
         Paint();
@@ -412,6 +450,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_DESTROY:
+        KillTimer(hwnd_, kWidgetUpdateTimer);
         UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
         tray_.Shutdown();
         PostQuitMessage(0);

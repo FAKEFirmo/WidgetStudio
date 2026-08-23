@@ -1,5 +1,6 @@
 #include "rendering/Renderer.h"
 #include "rendering/WidgetRenderContext.h"
+#include "rendering/WidgetVisualStyle.h"
 
 #include <algorithm>
 #include <array>
@@ -228,36 +229,50 @@ void Renderer::DrawGrid(const GridLayout& layout, const GridMetrics& metrics) {
 }
 
 void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMode) {
+    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> shadowBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> surfaceBrush;
     Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> borderBrush;
 
+    const bool light = widget.appearance.mode == AppearanceMode::Light;
     if (FAILED(renderTarget_->CreateSolidColorBrush(
-            Color(0.085f, 0.09f, 0.105f, widget.appearance.opacity),
+            Color(0.0f, 0.0f, 0.0f, light ? 0.14f : 0.22f), shadowBrush.GetAddressOf()))) {
+        return;
+    }
+    if (FAILED(renderTarget_->CreateSolidColorBrush(
+            light
+                ? Color(0.94f, 0.95f, 0.96f, widget.appearance.opacity)
+                : Color(0.085f, 0.09f, 0.105f, widget.appearance.opacity),
             surfaceBrush.GetAddressOf()))) {
         return;
     }
     if (FAILED(renderTarget_->CreateSolidColorBrush(
-            Color(1.0f, 1.0f, 1.0f, 0.16f),
+            light ? Color(0.0f, 0.0f, 0.0f, 0.12f) : Color(1.0f, 1.0f, 1.0f, 0.16f),
             borderBrush.GetAddressOf()))) {
         return;
     }
 
+    const RectF shadowRect{rect.x, rect.y + WidgetVisualStyle::kShadowOffset, rect.width, rect.height};
+    const D2D1_ROUNDED_RECT shadow = D2D1::RoundedRect(
+        ToD2D(shadowRect), widget.appearance.cornerRadius, widget.appearance.cornerRadius);
     const D2D1_ROUNDED_RECT rounded = D2D1::RoundedRect(
         ToD2D(rect),
         widget.appearance.cornerRadius,
         widget.appearance.cornerRadius);
 
+    renderTarget_->FillRoundedRectangle(&shadow, shadowBrush.Get());
     renderTarget_->FillRoundedRectangle(&rounded, surfaceBrush.Get());
-    renderTarget_->DrawRoundedRectangle(&rounded, borderBrush.Get(), 1.0f);
+    renderTarget_->DrawRoundedRectangle(&rounded, borderBrush.Get(), WidgetVisualStyle::kBorderWidth);
 
     if (widget.content) {
         widget.content->Render(WidgetRenderContext{
             .renderTarget = *renderTarget_,
+            .dwriteFactory = *dwriteFactory_,
             .titleFormat = *labelFormat_,
             .detailFormat = *smallFormat_,
-            .bounds = rect,
+            .bounds = WidgetVisualStyle::ContentBounds(rect),
             .instanceId = widget.instanceId,
             .contentScale = widget.contentScale,
+            .lightAppearance = widget.appearance.mode == AppearanceMode::Light,
         });
     }
 

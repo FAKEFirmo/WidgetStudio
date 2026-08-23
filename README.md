@@ -50,6 +50,8 @@ The current foundation and widget framework include:
 - generic widget instances with stable type IDs and unique instance IDs
 - a registry-driven native Widget Library
 - a minimal DebugWidget used to validate multiple instances
+- a production Clock widget using the shared authored-layout engine
+- one-shot widget update scheduling at displayed minute/second boundaries
 - versioned local scene persistence with atomic replacement and backup
 - click selection and Shift-click multi-selection
 - grid-snapped dragging

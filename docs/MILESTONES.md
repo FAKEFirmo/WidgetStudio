@@ -37,13 +37,18 @@ Clock, Calendar, Music, and Photo are not implemented in this milestone.
 - unknown widget-type record preservation
 - focused codec, store, placement, ID, lifecycle, and restore tests
 
-## M4 - Authored layout + production Clock
+## M4 - Authored layout + production Clock (implemented, build validation pending)
 
 - authored reference-layout engine
 - geometric centering after uniform scale
 - shared glass style object
 - common vector/text/image helpers
 - production Clock widget registered through the framework
+- aspect-profile selection with breakpoint hysteresis
+- uniform fit and explicit centering logic tests
+- dark/light shared card surface, border, padding, and shadow primitives
+- one-shot event-driven widget update scheduling
+- Clock 12/24-hour mode, optional seconds/divider, and date-format state
 
 ## M5 - Widget Studio
 

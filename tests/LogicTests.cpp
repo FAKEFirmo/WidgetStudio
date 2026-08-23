@@ -1,12 +1,16 @@
 #include "persistence/SceneJsonCodec.h"
 #include "persistence/SceneStore.h"
+#include "layout/AuthoredContentLayout.h"
 #include "scene/WidgetScene.h"
+#include "widgets/ClockWidget.h"
 #include "widgets/WidgetRegistry.h"
 
+#include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
 #include <iostream>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -118,6 +122,35 @@ void TestSerialization() {
         "unknown schema versions should be rejected safely");
 }
 
+void TestAuthoredLayout() {
+    constexpr float infinity = std::numeric_limits<float>::infinity();
+    const std::array profiles{
+        ws::AuthoredLayoutProfile{"portrait", 0.0f, 0.90f, {240.0f, 340.0f}},
+        ws::AuthoredLayoutProfile{"square", 0.90f, 1.45f, {300.0f, 300.0f}},
+        ws::AuthoredLayoutProfile{"landscape", 1.45f, 2.35f, {390.0f, 215.0f}},
+        ws::AuthoredLayoutProfile{"ultra-wide", 2.35f, infinity, {520.0f, 150.0f}},
+    };
+    Require(ws::AuthoredContentLayout::SelectProfile(profiles, 0.75f) == 0,
+        "portrait profile should be selected");
+    Require(ws::AuthoredContentLayout::SelectProfile(profiles, 1.0f) == 1,
+        "square profile should be selected");
+    Require(ws::AuthoredContentLayout::SelectProfile(profiles, 2.0f) == 2,
+        "landscape profile should be selected");
+    Require(ws::AuthoredContentLayout::SelectProfile(profiles, 2.5f) == 3,
+        "ultra-wide profile should be selected");
+    Require(ws::AuthoredContentLayout::SelectProfile(profiles, 1.43f, 2, 0.03f) == 2,
+        "hysteresis should retain the current profile near a breakpoint");
+
+    const ws::AuthoredLayoutResult fit = ws::AuthoredContentLayout::FitReference(
+        {270.0f, 120.0f}, {10.0f, 20.0f, 540.0f, 300.0f});
+    Require(std::abs(fit.scale - 2.0f) < 0.0001f, "fit should use one uniform scale");
+    Require(std::abs(fit.renderedSize.width - 540.0f) < 0.0001f &&
+        std::abs(fit.renderedSize.height - 240.0f) < 0.0001f,
+        "fit should preserve reference aspect ratio");
+    Require(std::abs(fit.origin.x - 10.0f) < 0.0001f && std::abs(fit.origin.y - 50.0f) < 0.0001f,
+        "fit should explicitly center the rendered reference rectangle");
+}
+
 void TestAtomicStoreAndRestore() {
     const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
     const std::filesystem::path directory = std::filesystem::temp_directory_path() /
@@ -150,13 +183,34 @@ void TestAtomicStoreAndRestore() {
         "restore should preserve instance ID");
 }
 
+void TestClockStateAndScheduling() {
+    ws::ClockWidget clock;
+    clock.RestoreState({
+        {L"use24Hour", L"false"},
+        {L"showSeconds", L"true"},
+        {L"showDivider", L"false"},
+        {L"dateFormat", L"compact"},
+    });
+    const ws::WidgetState state = clock.SaveState();
+    Require(state.at(L"use24Hour") == L"false" && state.at(L"showSeconds") == L"true" &&
+        state.at(L"showDivider") == L"false" && state.at(L"dateFormat") == L"compact",
+        "clock settings should round-trip through widget state");
+    const auto now = std::chrono::system_clock::now();
+    const auto next = clock.NextUpdateTime();
+    Require(next.has_value() && *next > now && *next - now <= std::chrono::seconds(1),
+        "seconds mode should schedule the next displayed-second boundary");
+    Require(clock.Settings().size() == 4, "clock should expose generic setting definitions");
+}
+
 } // namespace
 
 int main() {
     try {
         TestRegistryAndPlacement();
         TestSerialization();
+        TestAuthoredLayout();
         TestAtomicStoreAndRestore();
+        TestClockStateAndScheduling();
         std::cout << "WidgetStudio logic tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

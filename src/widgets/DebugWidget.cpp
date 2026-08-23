@@ -1,7 +1,6 @@
 #include "widgets/DebugWidget.h"
 
 #include "rendering/WidgetRenderContext.h"
-#include "widgets/WidgetRegistry.h"
 
 #include <iterator>
 #include <memory>
@@ -18,7 +17,7 @@ void DebugWidget::Render(const WidgetRenderContext& context) const {
         FAILED(context.renderTarget.CreateSolidColorBrush(
             D2D1::ColorF(0.97f, 0.97f, 0.95f, 0.58f), detailBrush.GetAddressOf()))) return;
 
-    const float padding = 16.0f * context.contentScale;
+    const float padding = 2.0f * context.contentScale;
     constexpr wchar_t title[] = L"Debug Widget";
     const std::wstring identifier(context.instanceId.begin(), context.instanceId.end());
     const D2D1_RECT_F titleRect = D2D1::RectF(
@@ -37,8 +36,8 @@ std::span<const WidgetSettingDefinition> DebugWidget::Settings() const noexcept 
 WidgetState DebugWidget::SaveState() const { return {}; }
 void DebugWidget::RestoreState(const WidgetState&) {}
 
-void RegisterBuiltInWidgets(WidgetRegistry& registry) {
-    registry.Register(WidgetDescriptor{
+WidgetDescriptor DebugWidget::Descriptor() {
+    return WidgetDescriptor{
         .typeId = "debug",
         .displayName = L"Debug Widget",
         .description = L"Internal widget used to validate the shared widget lifecycle.",
@@ -47,7 +46,7 @@ void RegisterBuiltInWidgets(WidgetRegistry& registry) {
         .maximumGridSize = GridSize{6, 4},
         .capabilities = WidgetCapability::Scalable,
         .factory = [] { return std::make_unique<DebugWidget>(); },
-    });
+    };
 }
 
 } // namespace ws

@@ -74,7 +74,13 @@ In the future desktop backend, passive widget regions will return `HTTRANSPARENT
 
 ## Authored content layout model
 
-Complex widgets will expose discrete reference compositions. Given available content `(Wa, Ha)` and reference dimensions `(Wr, Hr)`, use one uniform scale `s = min(Wa / Wr, Ha / Hr)` and explicitly center the resulting rectangle. Individual components are never stretched independently.
+`AuthoredContentLayout` owns profile selection, optional breakpoint hysteresis, uniform fitting, and explicit centering. Given available content `(Wa, Ha)` and reference dimensions `(Wr, Hr)`, it uses one base scale `s = min(Wa / Wr, Ha / Hr)` and centers the resulting rectangle. Universal content scaling is applied to the fitted composition as a whole. Individual components are never stretched independently.
+
+Widgets draw reference geometry through one Direct2D transform. Clock uses a 270 x 120 reference composition. The established Music profiles are represented as ordinary authored-layout profiles rather than host conditionals.
+
+## Event-driven content updates
+
+`IWidget::NextUpdateTime()` optionally advertises the next instant at which rendered content can change. `DesktopHost` scans instances and arms one Win32 one-shot timer for the earliest request. The Clock requests the next minute boundary by default or the next second boundary when seconds are enabled. There is no continuous render loop.
 
 ## Photo invariant
 
