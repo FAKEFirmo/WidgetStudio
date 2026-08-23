@@ -4,6 +4,7 @@
 #include "app/WidgetLibraryWindow.h"
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
+#include "persistence/SceneStore.h"
 #include "rendering/Renderer.h"
 #include "scene/WidgetScene.h"
 #include "widgets/WidgetRegistry.h"
@@ -28,6 +29,7 @@ private:
     struct DragState {
         std::string widgetId;
         PointF offset{};
+        bool moved{false};
     };
 
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -42,10 +44,12 @@ private:
     void EndDrag();
     void Paint();
     void OpenWidgetLibrary();
-    void CreateWidget(std::string_view typeId);
+    void CreateWidget(std::string_view typeId, bool persist = true);
     void DeleteSelectedWidgets();
     void DuplicatePrimaryWidget();
     void TogglePrimaryWidgetLock();
+    [[nodiscard]] SceneLoadStatus LoadScene();
+    void SaveScene();
     [[nodiscard]] std::wstring ActiveMonitorId() const;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
@@ -60,6 +64,9 @@ private:
     GridMetrics metrics_{};
     const WidgetRegistry& registry_;
     WidgetScene scene_;
+    SceneStore sceneStore_;
+    WidgetSceneSnapshot unrestoredRecords_;
+    bool persistenceErrorShown_{false};
     TrayController tray_{};
     WidgetLibraryWindow library_{};
     std::optional<DragState> drag_{};

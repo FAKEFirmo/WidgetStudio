@@ -41,7 +41,7 @@ register -> discover -> create -> place -> interact -> configure
 - Place: the scene scans the monitor grid left-to-right and then top-to-bottom for the first non-overlapping default footprint. A full grid falls back to a valid clamped placement.
 - Interact: selection, dragging, duplication, locking, and deletion operate only on instance data.
 - Configure: universal settings live on `WidgetInstance`; widget-specific settings are described by `IWidget::Settings()`.
-- Serialize: the scene produces persistence records containing stable IDs, both layout modes, appearance, locking, scale, and widget state. File encoding is deferred.
+- Serialize: the scene produces persistence records containing stable IDs, both layout modes, appearance, locking, scale, and widget state. `SceneJsonCodec` writes the versioned schema.
 - Restore: the registry recreates content by type ID and applies widget state to the restored instance.
 - Destroy: removing an instance destroys its owned content without type-specific cleanup in the scene.
 
@@ -66,7 +66,11 @@ In the future desktop backend, passive widget regions will return `HTTRANSPARENT
 
 ## Persistence boundary
 
-`WidgetPersistenceRecord` is the encoding-neutral persistence model. It contains instance/type/monitor IDs, grid and free placements, layout mode, lock state, content scale, universal appearance, and widget-specific key/value state. A later milestone may encode these records under `%LOCALAPPDATA%` without changing widget or host APIs.
+`WidgetPersistenceRecord` is the encoding-neutral persistence model. It contains instance/type/monitor IDs, grid and free placements, layout mode, lock state, content scale, universal appearance, and widget-specific key/value state.
+
+`SceneJsonCodec` encodes schema version 1 without a third-party dependency and rejects malformed input, unsupported versions, invalid values, and duplicate instance IDs. Unknown JSON fields are ignored for forward compatibility. Records whose widget type is unavailable are retained and written back instead of being discarded.
+
+`SceneStore` writes a temporary file in the configuration directory, flushes it, and uses same-volume Win32 replacement. When replacing an existing configuration it retains the previous file as `scene.json.bak`. Normal data lives under `%LOCALAPPDATA%\WidgetStudio`; an explicit `portable.mode` sentinel beside the executable redirects it to `portable-data` beside the executable.
 
 ## Authored content layout model
 

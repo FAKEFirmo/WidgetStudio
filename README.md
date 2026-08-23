@@ -50,6 +50,7 @@ The current foundation and widget framework include:
 - generic widget instances with stable type IDs and unique instance IDs
 - a registry-driven native Widget Library
 - a minimal DebugWidget used to validate multiple instances
+- versioned local scene persistence with atomic replacement and backup
 - click selection and Shift-click multi-selection
 - grid-snapped dragging
 - widget lock state
@@ -80,6 +81,18 @@ cmake --build build --config Debug
 - `Delete`: remove selected widgets in edit mode.
 - `Ctrl+D`: duplicate the primary selection.
 - `Ctrl+L`: toggle the primary selection's lock.
+
+## Runtime data
+
+By default, scene data is written to `%LOCALAPPDATA%\WidgetStudio\scene.json`. Atomic replacement keeps the previous file at `scene.json.bak`.
+
+For portable-data mode, place an empty file named `portable.mode` beside `WidgetStudio.exe` before launch. Scene data is then written to `portable-data\scene.json` beside the executable.
+
+WidgetStudio does not use telemetry or network access at runtime.
+
+## Disposable build environment
+
+The repository contains a Windows Sandbox workflow under `tools\dev-env`. It maps source read-only, provisions Microsoft build tools inside the disposable VM, runs the build and tests, and copies artifacts to `out\sandbox`. It does not enable Windows Sandbox or install tools on the host. See [tools/dev-env/README.md](tools/dev-env/README.md).
 
 ## Project guidance
 

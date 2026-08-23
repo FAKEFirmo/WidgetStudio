@@ -12,7 +12,8 @@ constexpr int kHotkeyToggleEdit = 1;
 
 } // namespace
 
-DesktopHost::DesktopHost(const WidgetRegistry& registry) : registry_(registry), scene_(registry) {
+DesktopHost::DesktopHost(const WidgetRegistry& registry)
+    : registry_(registry), scene_(registry), sceneStore_(SceneStore::DefaultConfigPath()) {
     scene_.SetGridDimensions(grid_.Columns(), grid_.Rows());
 }
 
@@ -75,7 +76,10 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     }
 
     UpdateMetrics();
-    CreateWidget("debug");
+    const SceneLoadStatus loadStatus = LoadScene();
+    if (loadStatus != SceneLoadStatus::Loaded) {
+        CreateWidget("debug", loadStatus == SceneLoadStatus::Missing);
+    }
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
     return true;
@@ -158,6 +162,7 @@ void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer) {
     drag_ = DragState{
         .widgetId = std::string(widgetId),
         .offset = PointF{pointer.x - rect.x, pointer.y - rect.y},
+        .moved = false,
     };
     SetCapture(hwnd_);
 }
@@ -166,9 +171,10 @@ void DesktopHost::OpenWidgetLibrary() {
     library_.Open(hwnd_, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
 }
 
-void DesktopHost::CreateWidget(std::string_view typeId) {
+void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
     if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
     SetEditMode(true);
+    if (persist) SaveScene();
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -182,12 +188,18 @@ std::wstring DesktopHost::ActiveMonitorId() const {
 
 void DesktopHost::DeleteSelectedWidgets() {
     EndDrag();
-    if (scene_.RemoveSelectedWidgets() > 0) InvalidateRect(hwnd_, nullptr, FALSE);
+    if (scene_.RemoveSelectedWidgets() > 0) {
+        SaveScene();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
 }
 
 void DesktopHost::DuplicatePrimaryWidget() {
     const auto primary = scene_.PrimarySelection();
-    if (primary && scene_.DuplicateWidget(*primary)) InvalidateRect(hwnd_, nullptr, FALSE);
+    if (primary && scene_.DuplicateWidget(*primary)) {
+        SaveScene();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }
 }
 
 void DesktopHost::TogglePrimaryWidgetLock() {
@@ -198,7 +210,39 @@ void DesktopHost::TogglePrimaryWidgetLock() {
     const bool lock = !widget->locked;
     scene_.SetWidgetLocked(*primary, lock);
     if (lock) EndDrag();
+    SaveScene();
     InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+SceneLoadStatus DesktopHost::LoadScene() {
+    const SceneLoadResult result = sceneStore_.Load();
+    if (result.status == SceneLoadStatus::Missing) return result.status;
+    if (result.status != SceneLoadStatus::Loaded) {
+        const std::wstring message = L"Widget Studio could not load the saved scene. The existing file was left intact.\n\n" +
+            result.message;
+        MessageBoxW(hwnd_, message.c_str(), L"Widget Studio", MB_OK | MB_ICONWARNING);
+        return result.status;
+    }
+
+    for (const auto& record : result.snapshot) {
+        if (!scene_.RestoreWidget(record)) unrestoredRecords_.push_back(record);
+    }
+    return SceneLoadStatus::Loaded;
+}
+
+void DesktopHost::SaveScene() {
+    WidgetSceneSnapshot snapshot = scene_.Snapshot();
+    snapshot.insert(snapshot.end(), unrestoredRecords_.begin(), unrestoredRecords_.end());
+    std::wstring error;
+    if (sceneStore_.Save(snapshot, error)) {
+        persistenceErrorShown_ = false;
+        return;
+    }
+    if (!persistenceErrorShown_) {
+        const std::wstring message = L"Widget Studio could not save the scene.\n\n" + error;
+        MessageBoxW(hwnd_, message.c_str(), L"Widget Studio", MB_OK | MB_ICONWARNING);
+        persistenceErrorShown_ = true;
+    }
 }
 
 void DesktopHost::UpdateDrag(PointF pointer) {
@@ -207,16 +251,22 @@ void DesktopHost::UpdateDrag(PointF pointer) {
     WidgetInstance* widget = scene_.Find(drag_->widgetId);
     if (!widget || widget->locked) return;
 
-    widget->grid = grid_.MoveToPoint(widget->grid, pointer, drag_->offset, metrics_);
+    const GridPlacement moved = grid_.MoveToPoint(widget->grid, pointer, drag_->offset, metrics_);
+    if (moved.column != widget->grid.column || moved.row != widget->grid.row) {
+        widget->grid = moved;
+        drag_->moved = true;
+    }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void DesktopHost::EndDrag() {
     if (drag_) {
+        const bool moved = drag_->moved;
         drag_.reset();
         if (GetCapture() == hwnd_) {
             ReleaseCapture();
         }
+        if (moved) SaveScene();
     }
 }
 
@@ -300,7 +350,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 0;
 
     case WM_CAPTURECHANGED:
-        drag_.reset();
+        EndDrag();
         return 0;
 
     case WM_KEYDOWN:

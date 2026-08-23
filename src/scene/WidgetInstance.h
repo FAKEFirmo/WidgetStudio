@@ -26,9 +26,16 @@ struct FreePlacement {
     float height{180.0f};
 };
 
+enum class AppearanceMode {
+    Dark,
+    Light,
+};
+
 struct WidgetAppearance {
+    AppearanceMode mode{AppearanceMode::Dark};
     bool glassEnabled{true};
     float opacity{0.62f};
+    float blurRadius{18.0f};
     float cornerRadius{22.0f};
 };
 

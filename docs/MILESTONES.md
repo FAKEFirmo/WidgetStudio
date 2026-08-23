@@ -10,7 +10,7 @@
 - snapped dragging and locking
 - edit/passive mode
 
-## M2 - Widget Framework and Widget Library (current)
+## M2 - Widget Framework and Widget Library (implemented, build validation pending)
 
 - separate widget type descriptors from widget instances
 - stable type and instance IDs
@@ -23,9 +23,21 @@
 - Delete, Ctrl+D, and Ctrl+L edit commands
 - encoding-neutral persistence records and registry-based restore path
 
-File encoding and final settings UI are intentionally deferred. Clock, Calendar, Music, and Photo are not implemented in this milestone.
+Clock, Calendar, Music, and Photo are not implemented in this milestone.
 
-## M3 - Authored layout + production Clock
+## M3 - Local persistence (implemented, build validation pending)
+
+- versioned JSON scene schema without a third-party library
+- malformed/unsupported configuration rejection
+- atomic temporary-file write and Win32 replacement
+- previous-configuration backup
+- `%LOCALAPPDATA%\WidgetStudio` default location
+- opt-in portable-data mode beside the executable
+- event-driven saves after create, delete, duplicate, lock, and completed drag
+- unknown widget-type record preservation
+- focused codec, store, placement, ID, lifecycle, and restore tests
+
+## M4 - Authored layout + production Clock
 
 - authored reference-layout engine
 - geometric centering after uniform scale
@@ -33,28 +45,27 @@ File encoding and final settings UI are intentionally deferred. Clock, Calendar,
 - common vector/text/image helpers
 - production Clock widget registered through the framework
 
-## M4 - Widget Studio + persistence
+## M5 - Widget Studio
 
 - settings window using the same WidgetScene
 - universal and widget-provided settings panels
 - grid sizing, alignment, and distribution
 - dark/light/glass settings
-- local scene encoding under `%LOCALAPPDATA%`
 
-## M5 - Calendar + Photo
+## M6 - Calendar + Photo
 
 - production Calendar
 - WIC photo import and local asset library
 - cover/contain and focal point
 
-## M6 - Music
+## M7 - Music
 
 - Windows Global System Media Transport Controls integration
 - metadata/artwork
 - Previous / Play-Pause / Next and progress timeline
 - authored Ultra-wide / Landscape / Square / Portrait layouts
 
-## M7 - Desktop integration
+## M8 - Desktop integration
 
 - `IDesktopBackend`
 - stable desktop-host behavior
@@ -62,7 +73,7 @@ File encoding and final settings UI are intentionally deferred. Clock, Calendar,
 - optional isolated WorkerW backend
 - Explorer restart recovery
 
-## M8 - Multi-monitor + polish
+## M9 - Multi-monitor + polish
 
 - per-monitor scenes/grids and monitor migration
 - event-driven invalidation

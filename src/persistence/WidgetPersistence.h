@@ -7,7 +7,8 @@
 
 namespace ws {
 
-// File encoding is intentionally deferred; this is the stable persistence boundary.
+// This encoding-neutral record keeps scene/domain code independent from the
+// versioned JSON file format implemented by SceneJsonCodec.
 struct WidgetPersistenceRecord {
     std::string instanceId;
     std::string typeId;
