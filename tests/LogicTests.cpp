@@ -306,6 +306,8 @@ void TestPhotoLayoutAndAssetImport() {
     std::ifstream input(*imported, std::ios::binary);
     const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
     Require(bytes == "local-image-bytes", "asset import should preserve file contents");
+    Require(library.ReferenceFor(*imported).starts_with(L"asset://"),
+        "imported assets should persist as portable data-relative references");
 }
 
 void TestFreeLayoutAndAlignment() {

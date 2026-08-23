@@ -103,6 +103,8 @@ Music uses the established Portrait, Square, Landscape, and Ultra-wide authored 
 
 Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fill` (uniform scale plus focal crop) and `fit` (uniform scale plus letterbox/pillarbox) calculations as pure tested logic. `PhotoWidget` decodes local files with WIC and caches its target-dependent Direct2D bitmap by render-resource generation. `AssetLibrary` copies chosen source files into application-owned local storage through a temporary file and same-volume move.
 
+New imports persist as validated `asset://filename` references. The composition root supplies the active asset directory to the Photo factory, allowing portable releases to move as a unit without coupling the widget to global path discovery. Legacy absolute image paths remain supported.
+
 ## Calendar model
 
 `CalendarModel` is widget-domain logic independent of rendering. It produces a fixed six-week grid with adjacent-month cells, today/weekend flags, Gregorian leap-year handling, and Monday/Sunday start. `CalendarWidget` localizes month, year, and weekday labels through Windows and requests its next content update at local midnight.

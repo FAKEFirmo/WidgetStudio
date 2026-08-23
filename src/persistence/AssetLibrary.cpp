@@ -58,4 +58,11 @@ std::optional<std::filesystem::path> AssetLibrary::Import(
     return destination;
 }
 
+std::wstring AssetLibrary::ReferenceFor(const std::filesystem::path& importedPath) const {
+    if (importedPath.parent_path() == directory_ && !importedPath.filename().empty()) {
+        return L"asset://" + importedPath.filename().wstring();
+    }
+    return importedPath.wstring();
+}
+
 } // namespace ws

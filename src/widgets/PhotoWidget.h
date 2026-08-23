@@ -5,22 +5,28 @@
 
 #include <d2d1.h>
 #include <cstdint>
+#include <filesystem>
+#include <utility>
 #include <wrl/client.h>
 
 namespace ws {
 
 class PhotoWidget final : public IWidget {
 public:
+    explicit PhotoWidget(std::filesystem::path assetDirectory)
+        : assetDirectory_(std::move(assetDirectory)) {}
     void Render(const WidgetRenderContext& context) const override;
     [[nodiscard]] std::span<const WidgetSettingDefinition> Settings() const noexcept override;
     [[nodiscard]] WidgetState SaveState() const override;
     void RestoreState(const WidgetState& state) override;
 
-    [[nodiscard]] static WidgetDescriptor Descriptor();
+    [[nodiscard]] static WidgetDescriptor Descriptor(std::filesystem::path assetDirectory);
 
 private:
     HRESULT EnsureBitmap(const WidgetRenderContext& context) const;
+    [[nodiscard]] std::filesystem::path ResolvedAssetPath() const;
 
+    std::filesystem::path assetDirectory_;
     std::wstring assetPath_;
     std::wstring fitMode_{L"fill"};
     float focalX_{0.5f};

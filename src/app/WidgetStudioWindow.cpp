@@ -440,7 +440,8 @@ void WidgetStudioWindow::ChooseWidgetFile() {
     const auto imported = assetLibrary_->Import(path, error);
     CoTaskMemFree(path);
     if (!imported) { MessageBoxW(hwnd_, error.c_str(), L"Widget Studio", MB_OK | MB_ICONWARNING); return; }
-    SetWindowTextW(widgetValue_, imported->c_str());
+    const std::wstring reference = assetLibrary_->ReferenceFor(*imported);
+    SetWindowTextW(widgetValue_, reference.c_str());
     ApplyWidgetSetting();
 }
 

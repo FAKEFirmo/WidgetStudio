@@ -14,6 +14,7 @@ public:
     [[nodiscard]] const std::filesystem::path& Directory() const noexcept { return directory_; }
     [[nodiscard]] std::optional<std::filesystem::path> Import(
         const std::filesystem::path& source, std::wstring& errorMessage) const;
+    [[nodiscard]] std::wstring ReferenceFor(const std::filesystem::path& importedPath) const;
 
 private:
     std::filesystem::path directory_;

@@ -10,6 +10,8 @@
 #include <d2d1helper.h>
 #include <iterator>
 #include <memory>
+#include <string_view>
+#include <utility>
 #include <wincodec.h>
 #include <wrl/client.h>
 
@@ -42,12 +44,13 @@ std::wstring FloatText(float value) {
 } // namespace
 
 HRESULT PhotoWidget::EnsureBitmap(const WidgetRenderContext& context) const {
+    const std::filesystem::path resolvedPath = ResolvedAssetPath();
     if (cachedTarget_ != &context.renderTarget || cachedGeneration_ != context.resourceGeneration ||
-        cachedPath_ != assetPath_) {
+        cachedPath_ != resolvedPath.wstring()) {
         bitmap_.Reset();
         cachedTarget_ = &context.renderTarget;
         cachedGeneration_ = context.resourceGeneration;
-        cachedPath_ = assetPath_;
+        cachedPath_ = resolvedPath.wstring();
         loadAttempted_ = false;
     }
     if (bitmap_) return S_OK;
@@ -55,7 +58,8 @@ HRESULT PhotoWidget::EnsureBitmap(const WidgetRenderContext& context) const {
     loadAttempted_ = true;
 
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT result = context.wicFactory.CreateDecoderFromFilename(assetPath_.c_str(), nullptr, GENERIC_READ,
+    HRESULT result = context.wicFactory.CreateDecoderFromFilename(
+        resolvedPath.c_str(), nullptr, GENERIC_READ,
         WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf());
     if (FAILED(result)) return result;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
@@ -68,6 +72,14 @@ HRESULT PhotoWidget::EnsureBitmap(const WidgetRenderContext& context) const {
         WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeMedianCut);
     if (FAILED(result)) return result;
     return context.renderTarget.CreateBitmapFromWicBitmap(converter.Get(), nullptr, bitmap_.GetAddressOf());
+}
+
+std::filesystem::path PhotoWidget::ResolvedAssetPath() const {
+    constexpr std::wstring_view prefix = L"asset://";
+    if (!assetPath_.starts_with(prefix)) return assetPath_;
+    const std::filesystem::path filename(assetPath_.substr(prefix.size()));
+    if (filename.empty() || filename.has_parent_path()) return {};
+    return assetDirectory_ / filename;
 }
 
 void PhotoWidget::Render(const WidgetRenderContext& context) const {
@@ -145,7 +157,7 @@ void PhotoWidget::RestoreState(const WidgetState& state) {
     innerFrame_ = ReadBool(state, L"innerFrame", innerFrame_);
 }
 
-WidgetDescriptor PhotoWidget::Descriptor() {
+WidgetDescriptor PhotoWidget::Descriptor(std::filesystem::path assetDirectory) {
     return WidgetDescriptor{
         .typeId = "photo",
         .displayName = L"Photo",
@@ -154,7 +166,9 @@ WidgetDescriptor PhotoWidget::Descriptor() {
         .minimumGridSize = GridSize{2, 2},
         .maximumGridSize = GridSize{8, 6},
         .capabilities = WidgetCapability::Configurable | WidgetCapability::Scalable,
-        .factory = [] { return std::make_unique<PhotoWidget>(); },
+        .factory = [assetDirectory = std::move(assetDirectory)] {
+            return std::make_unique<PhotoWidget>(assetDirectory);
+        },
     };
 }
 

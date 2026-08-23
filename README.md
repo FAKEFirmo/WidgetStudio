@@ -59,6 +59,8 @@ WorkerW is undocumented Explorer behavior; attachment failure automatically fall
 
 Normal mode writes scene data and imported assets under `%LOCALAPPDATA%\WidgetStudio`. Saves use a temporary file, flush it, replace `scene.json`, and retain `scene.json.bak`.
 
+Imported photos are persisted as `asset://` references relative to the active data directory, so moving a complete portable release folder does not invalidate them. Existing absolute paths remain readable for compatibility.
+
 When `portable.mode` exists beside the executable—as it does in the packaged release—data is written to `portable-data` beside the executable. Delete the release folder to remove both the portable app and its data. WidgetStudio does not create services, startup entries, scheduled tasks, registry settings, or machine-wide environment variables.
 
 ## Project documentation
