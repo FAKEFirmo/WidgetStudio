@@ -13,6 +13,7 @@
 #include <string>
 #include <string_view>
 #include <cstdint>
+#include <unordered_map>
 
 namespace ws {
 
@@ -42,6 +43,7 @@ private:
     HRESULT LoadBitmapFromFile(const std::wstring& path);
 
     void DrawWallpaper();
+    void DrawGlass(const WidgetInstance& widget, RectF rect);
     void DrawGrid(const GridLayout& layout, const GridMetrics& metrics);
     void DrawWidget(const WidgetInstance& widget, RectF rect, bool editMode);
     void DrawSelection(const WidgetInstance& widget, RectF rect);
@@ -59,6 +61,15 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> labelFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;
     std::uint64_t resourceGeneration_{};
+    std::uint64_t wallpaperRevision_{};
+
+    struct GlassCacheEntry {
+        RectF targetRect{};
+        float blurRadius{};
+        std::uint64_t wallpaperRevision{};
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    };
+    std::unordered_map<std::string, GlassCacheEntry> glassCache_;
 };
 
 } // namespace ws

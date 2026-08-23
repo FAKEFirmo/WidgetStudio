@@ -23,6 +23,7 @@ public:
         std::wstring monitorId, std::function<void()> sceneChanged, std::function<void()> openLibrary);
     void Close() noexcept;
     void Refresh();
+    void InvalidatePreview(bool reloadWallpaper = false);
     void UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId);
 
 private:

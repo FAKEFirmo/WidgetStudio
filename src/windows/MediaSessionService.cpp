@@ -1,6 +1,11 @@
 #include "windows/MediaSessionService.h"
 
 #include <algorithm>
+#include <condition_variable>
+#include <deque>
+#include <mutex>
+#include <thread>
+#include <utility>
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Media.Control.h>
 #include <winrt/Windows.Storage.Streams.h>
@@ -10,24 +15,101 @@ namespace media = winrt::Windows::Media::Control;
 namespace streams = winrt::Windows::Storage::Streams;
 
 struct MediaSessionService::Impl {
+    enum class Command { Previous, TogglePlayPause, Next };
+
     explicit Impl(MediaSessionService& owner) : owner(owner) {}
 
     bool Initialize() {
-        manager = media::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
-        managerChanged = manager.CurrentSessionChanged([this](const auto&, const auto&) { RefreshSession(); });
-        RefreshSession();
-        return true;
+        if (worker.joinable()) return true;
+        try {
+            worker = std::thread([this] { WorkerMain(); });
+            return true;
+        } catch (...) {
+            return false;
+        }
     }
 
     void Shutdown() noexcept {
-        try {
-            UnsubscribeSession();
-            if (manager && managerChanged.value) manager.CurrentSessionChanged(managerChanged);
-        } catch (...) {}
-        manager = nullptr;
+        {
+            std::scoped_lock lock(queueMutex);
+            stopping = true;
+        }
+        queueChanged.notify_one();
+        if (worker.joinable()) worker.join();
     }
 
-    void UnsubscribeSession() noexcept {
+    bool Enqueue(Command command) noexcept {
+        {
+            std::scoped_lock lock(queueMutex);
+            if (stopping) return false;
+            commands.push_back(command);
+        }
+        queueChanged.notify_one();
+        return true;
+    }
+
+    void RequestRefresh(bool mediaProperties) noexcept {
+        {
+            std::scoped_lock lock(queueMutex);
+            refreshRequested = true;
+            refreshMedia = refreshMedia || mediaProperties;
+        }
+        queueChanged.notify_one();
+    }
+
+    void RequestSessionRefresh() noexcept {
+        {
+            std::scoped_lock lock(queueMutex);
+            sessionRefreshRequested = true;
+        }
+        queueChanged.notify_one();
+    }
+
+    void WorkerMain() noexcept {
+        bool apartmentInitialized = false;
+        try {
+            winrt::init_apartment(winrt::apartment_type::multi_threaded);
+            apartmentInitialized = true;
+            manager = media::GlobalSystemMediaTransportControlsSessionManager::RequestAsync().get();
+            managerChanged = manager.CurrentSessionChanged(
+                [this](const auto&, const auto&) { RequestSessionRefresh(); });
+            RefreshSessionOnWorker();
+
+            while (true) {
+                bool refreshSession = false;
+                bool refresh = false;
+                bool includeMedia = false;
+                std::deque<Command> pendingCommands;
+                {
+                    std::unique_lock lock(queueMutex);
+                    queueChanged.wait(lock, [this] {
+                        return stopping || sessionRefreshRequested || refreshRequested || !commands.empty();
+                    });
+                    if (stopping) break;
+                    refreshSession = std::exchange(sessionRefreshRequested, false);
+                    refresh = std::exchange(refreshRequested, false);
+                    includeMedia = std::exchange(refreshMedia, false);
+                    pendingCommands.swap(commands);
+                }
+
+                if (refreshSession) RefreshSessionOnWorker();
+                else if (refresh) RefreshAllOnWorker(includeMedia);
+                for (Command command : pendingCommands) InvokeOnWorker(command);
+            }
+        } catch (...) {
+            owner.Publish(MediaSessionSnapshot{});
+        }
+
+        UnsubscribeSessionOnWorker();
+        try {
+            if (manager && managerChanged.value) manager.CurrentSessionChanged(managerChanged);
+        } catch (...) {}
+        managerChanged = {};
+        manager = nullptr;
+        if (apartmentInitialized) winrt::uninit_apartment();
+    }
+
+    void UnsubscribeSessionOnWorker() noexcept {
         try {
             if (session) {
                 if (mediaChanged.value) session.MediaPropertiesChanged(mediaChanged);
@@ -41,29 +123,32 @@ struct MediaSessionService::Impl {
         session = nullptr;
     }
 
-    void RefreshSession() noexcept {
+    void RefreshSessionOnWorker() noexcept {
         try {
-            UnsubscribeSession();
+            UnsubscribeSessionOnWorker();
             session = manager.GetCurrentSession();
             if (session) {
-                mediaChanged = session.MediaPropertiesChanged([this](const auto&, const auto&) { RefreshAll(true); });
-                playbackChanged = session.PlaybackInfoChanged([this](const auto&, const auto&) { RefreshAll(false); });
-                timelineChanged = session.TimelinePropertiesChanged([this](const auto&, const auto&) { RefreshAll(false); });
+                mediaChanged = session.MediaPropertiesChanged(
+                    [this](const auto&, const auto&) { RequestRefresh(true); });
+                playbackChanged = session.PlaybackInfoChanged(
+                    [this](const auto&, const auto&) { RequestRefresh(false); });
+                timelineChanged = session.TimelinePropertiesChanged(
+                    [this](const auto&, const auto&) { RequestRefresh(false); });
             }
-            RefreshAll(true);
+            RefreshAllOnWorker(true);
         } catch (...) {
             owner.Publish(MediaSessionSnapshot{});
         }
     }
 
-    void RefreshAll(bool refreshMedia) noexcept {
+    void RefreshAllOnWorker(bool includeMedia) noexcept {
         try {
             MediaSessionSnapshot snapshot = owner.Snapshot();
             snapshot.hasSession = static_cast<bool>(session);
             snapshot.capturedAt = std::chrono::steady_clock::now();
             if (!session) { owner.Publish(MediaSessionSnapshot{}); return; }
 
-            if (refreshMedia) {
+            if (includeMedia) {
                 snapshot.source = session.SourceAppUserModelId().c_str();
                 const auto properties = session.TryGetMediaPropertiesAsync().get();
                 snapshot.title = properties.Title().c_str();
@@ -71,15 +156,20 @@ struct MediaSessionService::Impl {
                 snapshot.artwork.reset();
                 if (const auto thumbnail = properties.Thumbnail()) {
                     const auto randomAccess = thumbnail.OpenReadAsync().get();
-                    const std::uint64_t size = std::min<std::uint64_t>(randomAccess.Size(), 16ULL * 1024ULL * 1024ULL);
+                    const std::uint64_t size = std::min<std::uint64_t>(
+                        randomAccess.Size(), 16ULL * 1024ULL * 1024ULL);
                     if (size > 0) {
                         const auto buffer = randomAccess.ReadAsync(
-                            streams::Buffer(static_cast<std::uint32_t>(size)), static_cast<std::uint32_t>(size),
+                            streams::Buffer(static_cast<std::uint32_t>(size)),
+                            static_cast<std::uint32_t>(size),
                             streams::InputStreamOptions::None).get();
-                        auto artwork = std::make_shared<std::vector<std::uint8_t>>(buffer.Length());
-                        auto artworkView = winrt::array_view<std::uint8_t>(*artwork);
-                        streams::DataReader::FromBuffer(buffer).ReadBytes(artworkView);
-                        snapshot.artwork = std::move(artwork);
+                        if (buffer.Length() > 0) {
+                            auto artwork = std::make_shared<std::vector<std::uint8_t>>(buffer.Length());
+                            streams::DataReader::FromBuffer(buffer).ReadBytes(
+                                winrt::array_view<std::uint8_t>(
+                                    artwork->data(), artwork->data() + artwork->size()));
+                            snapshot.artwork = std::move(artwork);
+                        }
                     }
                 }
             }
@@ -103,16 +193,27 @@ struct MediaSessionService::Impl {
         }
     }
 
-    template <typename Operation>
-    bool Invoke(Operation&& operation) noexcept {
+    void InvokeOnWorker(Command command) noexcept {
+        if (!session) return;
         try {
-            return session && operation(session).get();
-        } catch (...) {
-            return false;
-        }
+            switch (command) {
+            case Command::Previous: static_cast<void>(session.TrySkipPreviousAsync().get()); break;
+            case Command::TogglePlayPause: static_cast<void>(session.TryTogglePlayPauseAsync().get()); break;
+            case Command::Next: static_cast<void>(session.TrySkipNextAsync().get()); break;
+            }
+            RefreshAllOnWorker(false);
+        } catch (...) {}
     }
 
     MediaSessionService& owner;
+    std::thread worker;
+    std::mutex queueMutex;
+    std::condition_variable queueChanged;
+    std::deque<Command> commands;
+    bool stopping{false};
+    bool sessionRefreshRequested{false};
+    bool refreshRequested{false};
+    bool refreshMedia{false};
     media::GlobalSystemMediaTransportControlsSessionManager manager{nullptr};
     media::GlobalSystemMediaTransportControlsSession session{nullptr};
     winrt::event_token managerChanged{};
@@ -158,15 +259,15 @@ void MediaSessionService::Publish(MediaSessionSnapshot snapshot) {
 }
 
 bool MediaSessionService::Previous() noexcept {
-    return impl_->Invoke([](const auto& session) { return session.TrySkipPreviousAsync(); });
+    return impl_->Enqueue(Impl::Command::Previous);
 }
 
 bool MediaSessionService::TogglePlayPause() noexcept {
-    return impl_->Invoke([](const auto& session) { return session.TryTogglePlayPauseAsync(); });
+    return impl_->Enqueue(Impl::Command::TogglePlayPause);
 }
 
 bool MediaSessionService::Next() noexcept {
-    return impl_->Invoke([](const auto& session) { return session.TrySkipNextAsync(); });
+    return impl_->Enqueue(Impl::Command::Next);
 }
 
 } // namespace ws

@@ -94,12 +94,12 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         return false;
     }
 
-    if (!desktopBackend_.AttachConfigured(hwnd_)) {
+    monitorTopology_.Refresh();
+    if (!desktopBackend_.AttachConfigured(hwnd_, ActiveDesktopTarget())) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
     }
-    monitorTopology_.Refresh();
     UpdateMetrics();
     const SceneLoadStatus loadStatus = LoadScene();
     if (loadStatus != SceneLoadStatus::Loaded) {
@@ -252,6 +252,14 @@ std::wstring DesktopHost::ActiveMonitorId() const {
     const HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
     if (monitor && GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&info))) return info.szDevice;
     return L"primary";
+}
+
+DesktopTargetBounds DesktopHost::ActiveDesktopTarget() const noexcept {
+    const MonitorDescriptor* monitor = monitorTopology_.Find(ActiveMonitorId());
+    if (!monitor) monitor = monitorTopology_.Primary();
+    if (!monitor) return {};
+    return DesktopTargetBounds{monitor->pixelX, monitor->pixelY,
+        monitor->pixelWidth, monitor->pixelHeight, true};
 }
 
 void DesktopHost::DeleteSelectedWidgets() {
@@ -426,6 +434,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_SETTINGCHANGE:
         renderer_.ReloadWallpaper();
+        studio_.InvalidatePreview(true);
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
@@ -434,6 +443,8 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         if (monitorTopology_.Refresh()) {
             if (monitorTopology_.MigrateMissingWidgets(
                     scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
+            desktopBackend_.Detach(hwnd_);
+            desktopBackend_.AttachConfigured(hwnd_, ActiveDesktopTarget());
             UpdateMetrics();
             InvalidateRect(hwnd_, nullptr, FALSE);
             studio_.Refresh();
@@ -443,12 +454,14 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_TIMECHANGE:
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
+        studio_.InvalidatePreview();
         return 0;
 
     case WM_TIMER:
         if (wParam == kWidgetUpdateTimer) {
             ScheduleNextWidgetUpdate();
             InvalidateRect(hwnd_, nullptr, FALSE);
+            studio_.InvalidatePreview();
             return 0;
         }
         break;
@@ -456,6 +469,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case kMediaSessionChangedMessage:
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
+        studio_.InvalidatePreview();
         return 0;
 
     case WM_PAINT:

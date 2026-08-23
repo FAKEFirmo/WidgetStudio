@@ -13,6 +13,24 @@ D2D1_COLOR_F Color(float r, float g, float b, float a = 1.0f) {
     return D2D1::ColorF(r, g, b, a);
 }
 
+D2D1_RECT_F WallpaperSourceRect(D2D1_SIZE_F targetSize, D2D1_SIZE_F bitmapSize) {
+    const float targetAspect = targetSize.width / std::max(1.0f, targetSize.height);
+    const float bitmapAspect = bitmapSize.width / std::max(1.0f, bitmapSize.height);
+    if (bitmapAspect > targetAspect) {
+        const float sourceWidth = bitmapSize.height * targetAspect;
+        const float left = (bitmapSize.width - sourceWidth) * 0.5f;
+        return D2D1::RectF(left, 0.0f, left + sourceWidth, bitmapSize.height);
+    }
+    const float sourceHeight = bitmapSize.width / targetAspect;
+    const float top = (bitmapSize.height - sourceHeight) * 0.5f;
+    return D2D1::RectF(0.0f, top, bitmapSize.width, top + sourceHeight);
+}
+
+bool SameRect(RectF left, RectF right) noexcept {
+    return left.x == right.x && left.y == right.y &&
+        left.width == right.width && left.height == right.height;
+}
+
 } // namespace
 
 HRESULT Renderer::Initialize(HWND hwnd) {
@@ -87,6 +105,7 @@ HRESULT Renderer::Initialize(HWND hwnd) {
 }
 
 void Renderer::DiscardDeviceResources() noexcept {
+    glassCache_.clear();
     wallpaperBitmap_.Reset();
     renderTarget_.Reset();
 }
@@ -113,6 +132,7 @@ HRESULT Renderer::CreateDeviceResources() {
 
 HRESULT Renderer::Resize(UINT width, UINT height) {
     if (!renderTarget_) return S_OK;
+    glassCache_.clear();
     return renderTarget_->Resize(D2D1::SizeU(std::max(1u, width), std::max(1u, height)));
 }
 
@@ -121,10 +141,13 @@ void Renderer::SetDpi(float dpi) noexcept {
     if (renderTarget_) {
         renderTarget_->SetDpi(dpi_, dpi_);
     }
+    glassCache_.clear();
 }
 
 HRESULT Renderer::ReloadWallpaper() {
     wallpaperBitmap_.Reset();
+    glassCache_.clear();
+    ++wallpaperRevision_;
 
     std::array<wchar_t, MAX_PATH> path{};
     if (!SystemParametersInfoW(SPI_GETDESKWALLPAPER, static_cast<UINT>(path.size()), path.data(), 0)) {
@@ -192,19 +215,7 @@ void Renderer::DrawWallpaper() {
         return;
     }
 
-    const float targetAspect = targetSize.width / std::max(1.0f, targetSize.height);
-    const float bitmapAspect = bitmapSize.width / std::max(1.0f, bitmapSize.height);
-
-    D2D1_RECT_F source{};
-    if (bitmapAspect > targetAspect) {
-        const float sourceWidth = bitmapSize.height * targetAspect;
-        const float left = (bitmapSize.width - sourceWidth) * 0.5f;
-        source = D2D1::RectF(left, 0.0f, left + sourceWidth, bitmapSize.height);
-    } else {
-        const float sourceHeight = bitmapSize.width / targetAspect;
-        const float top = (bitmapSize.height - sourceHeight) * 0.5f;
-        source = D2D1::RectF(0.0f, top, bitmapSize.width, top + sourceHeight);
-    }
+    const D2D1_RECT_F source = WallpaperSourceRect(targetSize, bitmapSize);
 
     renderTarget_->DrawBitmap(
         wallpaperBitmap_.Get(),
@@ -212,6 +223,64 @@ void Renderer::DrawWallpaper() {
         1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR,
         &source);
+}
+
+void Renderer::DrawGlass(const WidgetInstance& widget, RectF rect) {
+    if (!wallpaperBitmap_ || !widget.appearance.glassEnabled || widget.appearance.blurRadius <= 0.0f) return;
+    D2D1_MATRIX_3X2_F transform{};
+    renderTarget_->GetTransform(&transform);
+    const auto transformPoint = [&transform](float x, float y) {
+        return D2D1::Point2F(x * transform._11 + y * transform._21 + transform._31,
+            x * transform._12 + y * transform._22 + transform._32);
+    };
+    const D2D1_POINT_2F topLeft = transformPoint(rect.Left(), rect.Top());
+    const D2D1_POINT_2F bottomRight = transformPoint(rect.Right(), rect.Bottom());
+    const RectF targetRect{topLeft.x, topLeft.y,
+        std::max(1.0f, bottomRight.x - topLeft.x),
+        std::max(1.0f, bottomRight.y - topLeft.y)};
+
+    GlassCacheEntry& cache = glassCache_[widget.instanceId];
+    if (!cache.bitmap || cache.wallpaperRevision != wallpaperRevision_ ||
+        cache.blurRadius != widget.appearance.blurRadius || !SameRect(cache.targetRect, targetRect)) {
+        const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
+        const D2D1_SIZE_F bitmapSize = wallpaperBitmap_->GetSize();
+        const D2D1_RECT_F fullSource = WallpaperSourceRect(targetSize, bitmapSize);
+        const float sourceScaleX = (fullSource.right - fullSource.left) / std::max(1.0f, targetSize.width);
+        const float sourceScaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, targetSize.height);
+        const D2D1_RECT_F source = D2D1::RectF(
+            fullSource.left + targetRect.Left() * sourceScaleX,
+            fullSource.top + targetRect.Top() * sourceScaleY,
+            fullSource.left + targetRect.Right() * sourceScaleX,
+            fullSource.top + targetRect.Bottom() * sourceScaleY);
+        const float downsample = std::clamp(1.0f + widget.appearance.blurRadius / 3.0f, 2.0f, 12.0f);
+        const D2D1_SIZE_F smallSize = D2D1::SizeF(
+            std::max(1.0f, targetRect.width / downsample),
+            std::max(1.0f, targetRect.height / downsample));
+        Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> smallTarget;
+        if (FAILED(renderTarget_->CreateCompatibleRenderTarget(&smallSize, nullptr, nullptr,
+                D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, smallTarget.GetAddressOf()))) return;
+        smallTarget->BeginDraw();
+        const D2D1_RECT_F destination = D2D1::RectF(0.0f, 0.0f, smallSize.width, smallSize.height);
+        smallTarget->DrawBitmap(wallpaperBitmap_.Get(), &destination, 1.0f,
+            D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &source);
+        if (FAILED(smallTarget->EndDraw())) return;
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+        if (FAILED(smallTarget->GetBitmap(bitmap.GetAddressOf()))) return;
+        cache = GlassCacheEntry{targetRect, widget.appearance.blurRadius, wallpaperRevision_, std::move(bitmap)};
+    }
+
+    Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> mask;
+    Microsoft::WRL::ComPtr<ID2D1Layer> layer;
+    const D2D1_ROUNDED_RECT rounded = D2D1::RoundedRect(
+        ToD2D(rect), widget.appearance.cornerRadius, widget.appearance.cornerRadius);
+    const bool masked = SUCCEEDED(d2dFactory_->CreateRoundedRectangleGeometry(&rounded, mask.GetAddressOf())) &&
+        SUCCEEDED(renderTarget_->CreateLayer(nullptr, layer.GetAddressOf()));
+    if (masked) renderTarget_->PushLayer(
+        D2D1::LayerParameters(D2D1::InfiniteRect(), mask.Get()), layer.Get());
+    const D2D1_RECT_F destination = ToD2D(rect);
+    renderTarget_->DrawBitmap(cache.bitmap.Get(), &destination, 1.0f,
+        D2D1_BITMAP_INTERPOLATION_MODE_LINEAR);
+    if (masked) renderTarget_->PopLayer();
 }
 
 void Renderer::DrawGrid(const GridLayout& layout, const GridMetrics& metrics) {
@@ -262,6 +331,7 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
         widget.appearance.cornerRadius);
 
     renderTarget_->FillRoundedRectangle(&shadow, shadowBrush.Get());
+    DrawGlass(widget, rect);
     renderTarget_->FillRoundedRectangle(&rounded, surfaceBrush.Get());
     renderTarget_->DrawRoundedRectangle(&rounded, borderBrush.Get(), WidgetVisualStyle::kBorderWidth);
 

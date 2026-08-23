@@ -13,6 +13,10 @@ class WidgetScene;
 struct MonitorDescriptor {
     std::wstring id;
     RectF workAreaDips{};
+    int pixelX{};
+    int pixelY{};
+    int pixelWidth{};
+    int pixelHeight{};
     unsigned int dpi{96};
     bool primary{false};
 };

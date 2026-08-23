@@ -42,6 +42,17 @@ try {
         -BuildPath (Join-Path $devRoot 'build') `
         -Configuration Debug
 
+    & (Join-Path $sourcePath 'tools\dev-env\build.ps1') `
+        -SourcePath $sourcePath `
+        -BuildPath (Join-Path $devRoot 'build') `
+        -OutputPath $outputPath `
+        -Configuration Release
+
+    & (Join-Path $sourcePath 'tools\package.ps1') `
+        -BuildPath (Join-Path $devRoot 'build') `
+        -OutputPath (Join-Path $outputPath 'dist') `
+        -CMakePath 'C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
+
     Write-Host 'WidgetStudio sandbox build and tests completed.'
     Write-Host "Artifacts were copied to $outputPath on the host mapping."
 } finally {

@@ -64,6 +64,7 @@ private:
     void SaveScene();
     void ScheduleNextWidgetUpdate();
     [[nodiscard]] std::wstring ActiveMonitorId() const;
+    [[nodiscard]] DesktopTargetBounds ActiveDesktopTarget() const noexcept;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
     [[nodiscard]] RectF ClientBounds() const noexcept;

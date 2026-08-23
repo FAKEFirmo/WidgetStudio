@@ -122,6 +122,12 @@ void WidgetStudioWindow::Refresh() {
     InvalidateRect(preview_, nullptr, FALSE);
 }
 
+void WidgetStudioWindow::InvalidatePreview(bool reloadWallpaper) {
+    if (!preview_) return;
+    if (reloadWallpaper && previewRenderer_) static_cast<void>(previewRenderer_->ReloadWallpaper());
+    InvalidateRect(preview_, nullptr, FALSE);
+}
+
 void WidgetStudioWindow::UpdateLayoutContext(
     GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId) {
     layoutMetrics_ = layoutMetrics;

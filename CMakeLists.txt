@@ -1,11 +1,12 @@
 cmake_minimum_required(VERSION 3.24)
-project(WidgetStudio LANGUAGES CXX)
+project(WidgetStudio VERSION 1.0.0 LANGUAGES CXX RC)
 
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 
 add_executable(WidgetStudio WIN32
     src/main.cpp
@@ -13,6 +14,7 @@ add_executable(WidgetStudio WIN32
     src/app/TrayController.cpp
     src/app/WidgetLibraryWindow.cpp
     src/app/WidgetStudioWindow.cpp
+    src/app/WidgetStudio.rc
     src/desktop/DesktopBackendController.cpp
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
@@ -63,6 +65,9 @@ target_link_libraries(WidgetStudio PRIVATE
     gdi32
     windowsapp
 )
+
+install(TARGETS WidgetStudio RUNTIME DESTINATION .)
+install(FILES packaging/README.txt packaging/portable.mode DESTINATION .)
 
 if(BUILD_TESTING)
     add_executable(WidgetStudioLogicTests

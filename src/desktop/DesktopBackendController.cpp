@@ -10,7 +10,7 @@ namespace {
 class WindowedDesktopBackend final : public IDesktopBackend {
 public:
     std::wstring_view Name() const noexcept override { return L"Windowed"; }
-    bool Attach(HWND) override { return true; }
+    bool Attach(HWND, DesktopTargetBounds) override { return true; }
     void Detach(HWND) noexcept override {}
 };
 
@@ -18,7 +18,7 @@ class WorkerWDesktopBackend final : public IDesktopBackend {
 public:
     std::wstring_view Name() const noexcept override { return L"WorkerW (experimental)"; }
 
-    bool Attach(HWND host) override {
+    bool Attach(HWND host, DesktopTargetBounds target) override {
         if (!host || !IsWindow(host)) return false;
         HWND worker = FindWorkerWindow();
         if (!worker) return false;
@@ -31,13 +31,25 @@ public:
         }
         SetLastError(ERROR_SUCCESS);
         if (!SetParent(host, worker) && GetLastError() != ERROR_SUCCESS) return false;
+        attached_ = true;
         SetWindowLongPtrW(host, GWL_STYLE, (originalStyle_ & ~WS_OVERLAPPEDWINDOW) | WS_CHILD | WS_VISIBLE);
         SetWindowLongPtrW(host, GWL_EXSTYLE, originalExtendedStyle_ | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
         RECT bounds{};
-        if (!GetClientRect(worker, &bounds)) return false;
-        SetWindowPos(host, HWND_BOTTOM, 0, 0, bounds.right, bounds.bottom,
-            SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
-        attached_ = true;
+        if (!GetClientRect(worker, &bounds)) { Detach(host); return false; }
+        POINT origin{};
+        int width = bounds.right;
+        int height = bounds.bottom;
+        if (target.valid) {
+            origin = POINT{target.x, target.y};
+            if (!ScreenToClient(worker, &origin)) { Detach(host); return false; }
+            width = target.width;
+            height = target.height;
+        }
+        if (!SetWindowPos(host, HWND_BOTTOM, origin.x, origin.y, width, height,
+                SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW)) {
+            Detach(host);
+            return false;
+        }
         return true;
     }
 
@@ -88,24 +100,25 @@ bool WorkerWRequested() {
 
 } // namespace
 
-bool DesktopBackendController::AttachConfigured(HWND host) {
+bool DesktopBackendController::AttachConfigured(HWND host, DesktopTargetBounds target) {
     experimental_ = false;
+    target_ = target;
     if (WorkerWRequested()) {
         auto worker = std::make_unique<WorkerWDesktopBackend>();
-        if (worker->Attach(host)) {
+        if (worker->Attach(host, target_)) {
             backend_ = std::move(worker);
             experimental_ = true;
             return true;
         }
     }
     backend_ = std::make_unique<WindowedDesktopBackend>();
-    return backend_->Attach(host);
+    return backend_->Attach(host, target_);
 }
 
 void DesktopBackendController::Reattach(HWND host) {
     if (!experimental_) return;
     backend_->Detach(host);
-    if (!backend_->Attach(host)) AttachConfigured(host);
+    if (!backend_->Attach(host, target_)) AttachConfigured(host, target_);
 }
 
 void DesktopBackendController::Detach(HWND host) noexcept {

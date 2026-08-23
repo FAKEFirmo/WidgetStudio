@@ -28,6 +28,10 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM context) {
             static_cast<float>(info.rcWork.right - info.rcWork.left) * pixelsToDips,
             static_cast<float>(info.rcWork.bottom - info.rcWork.top) * pixelsToDips,
         },
+        .pixelX = info.rcWork.left,
+        .pixelY = info.rcWork.top,
+        .pixelWidth = info.rcWork.right - info.rcWork.left,
+        .pixelHeight = info.rcWork.bottom - info.rcWork.top,
         .dpi = dpiX,
         .primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
     });

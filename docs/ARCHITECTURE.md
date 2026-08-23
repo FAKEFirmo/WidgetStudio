@@ -10,12 +10,15 @@ Application
     WidgetDescriptor -> IWidget factory
   DesktopHost
     WidgetLibraryWindow (enumerates registry)
+    WidgetStudioWindow (shared-scene preview and settings)
     WidgetScene
       WidgetInstance -> owned IWidget content
     GridLayout
     Renderer
     Interaction state
   TrayController
+  DesktopBackendController -> IDesktopBackend
+  MonitorTopology
 ```
 
 Widget registration is explicit during application startup. There is no static self-registration and no external DLL/plugin loading. Stable string type IDs are the serialization identity of built-in widget types; the host and interaction layers never branch on those IDs.
@@ -57,7 +60,7 @@ The initial placement scan is scene/layout policy, never widget behavior. It com
 Passive
 Editing
 Dragging
-WidgetAction (future, e.g. music buttons)
+WidgetAction
 ```
 
 In Editing mode, click establishes the primary selection, Shift-click toggles multi-selection, and unlocked instances drag through the active outer-layout mode. Grid instances snap to cells; free instances move in DIPs and clamp within the client/monitor bounds. `Delete` removes selected instances, `Ctrl+D` duplicates the primary instance, and `Ctrl+L` toggles its lock. Locked widgets remain selectable.
@@ -88,7 +91,13 @@ Widgets draw reference geometry through one Direct2D transform. Clock uses a 270
 
 Music metadata, playback state, timeline state, and artwork originate only from `GlobalSystemMediaTransportControlsSessionManager` through the shared `windows/MediaSessionService`. Session events update a mutex-protected snapshot and post a lightweight host notification. Artwork bytes are shared and refreshed only on media-property changes; playback/timeline events do not re-fetch or copy artwork. While playing, Music requests a 500 ms one-shot progress refresh.
 
+All WinRT media-session calls run on a dedicated MTA worker. The worker blocks on a condition variable when idle, wakes for session events or transport commands, and publishes immutable snapshots back to the UI. This avoids blocking WinRT waits on the application STA and gives shutdown a single resource-owning thread.
+
 Music uses the established Portrait, Square, Landscape, and Ultra-wide authored profiles. Each profile contains exactly one square artwork region, one progress bar, elapsed/negative-remaining labels, and Previous/Play-Pause/Next vector controls. Transport hit regions are returned through the generic widget-action interface.
+
+## Wallpaper and glass
+
+`Renderer` decodes the current wallpaper once through WIC and uses the same cached bitmap for the desktop and preview. Glass-enabled cards cache a low-resolution sample of the exact wallpaper region behind the card and bilinearly expand it beneath a rounded geometry mask; the downsample factor follows the configured blur radius. Cache entries invalidate only when the wallpaper, render target, DPI, card geometry, or blur radius changes. No desktop capture or continuous blur pass is used.
 
 ## Photo invariant
 
@@ -97,3 +106,17 @@ Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fil
 ## Calendar model
 
 `CalendarModel` is widget-domain logic independent of rendering. It produces a fixed six-week grid with adjacent-month cells, today/weekend flags, Gregorian leap-year handling, and Monday/Sunday start. `CalendarWidget` localizes month, year, and weekday labels through Windows and requests its next content update at local midnight.
+
+## Widget Studio
+
+`WidgetStudioWindow` renders the same `WidgetScene` through the same `Renderer`, `GridLayout`, and authored widget content used by the desktop. A preview-only render transform fits the active monitor scene without maintaining duplicate layout state. Universal instance fields and declarative `IWidget::Settings()` definitions drive native controls for numbers, booleans, choices, text, and local files.
+
+## Desktop and monitor boundary
+
+`IDesktopBackend` isolates attachment behavior from the scene, renderer, interaction system, and widgets. `DesktopBackendController` selects the reliable normal-window backend unless the process-local `WIDGETSTUDIO_DESKTOP_BACKEND=workerw` option requests the experimental backend. WorkerW discovery and attachment can fail without affecting widget state; the controller falls back to a normal window and reattaches after Explorer broadcasts `TaskbarCreated`.
+
+`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. Rendering and hit testing filter on the active monitor ID so instances from different monitor scenes cannot overlap logically. Display changes refresh topology; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved.
+
+## Delivery boundary
+
+The Release target statically links the MSVC runtime and installs only `WidgetStudio.exe`, a runtime README, and the `portable.mode` marker. No compiler, SDK, service, registry entry, updater, or runtime package manager is part of the application release.
