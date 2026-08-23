@@ -9,7 +9,7 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 - Click/Shift-click selection, dragging, locking, duplication, removal, passive mode, and explicit widget action hit regions.
 - Native Widget Library and Widget Studio windows operating on the shared live scene.
 - Versioned atomic JSON persistence with backup and application-owned photo imports.
-- Per-Monitor DPI Awareness V2, monitor association/isolation, and missing-monitor migration.
+- Per-Monitor DPI Awareness V2, simultaneous monitor-scoped WorkerW surfaces, monitor association/isolation, and missing-monitor migration.
 - A normal-window desktop backend by default and an explicitly opt-in experimental WorkerW backend with fallback and Explorer restart recovery.
 - Event-driven invalidation. No continuous idle render loop is used.
 

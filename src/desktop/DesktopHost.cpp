@@ -1,5 +1,6 @@
 #include "desktop/DesktopHost.h"
 
+#include "desktop/DesktopSurface.h"
 #include "layout/OuterLayout.h"
 #include "rendering/WidgetVisualStyle.h"
 #include "windows/MediaSessionService.h"
@@ -95,6 +96,7 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     }
 
     monitorTopology_.Refresh();
+    activeMonitorId_ = HostMonitorId();
     if (!desktopBackend_.AttachConfigured(hwnd_, ActiveDesktopTarget())) {
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
@@ -107,6 +109,7 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     }
     if (monitorTopology_.MigrateMissingWidgets(
             scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
+    RebuildSecondarySurfaces();
     ScheduleNextWidgetUpdate();
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
@@ -152,7 +155,11 @@ LRESULT CALLBACK DesktopHost::WindowProc(HWND hwnd, UINT message, WPARAM wParam,
 }
 
 PointF DesktopHost::ClientPointFromLParam(LPARAM lParam) const noexcept {
-    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi_));
+    return ClientPointFromLParam(lParam, dpi_);
+}
+
+PointF DesktopHost::ClientPointFromLParam(LPARAM lParam, UINT dpi) noexcept {
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi));
     return PointF{
         static_cast<float>(GET_X_LPARAM(lParam)) * pixelsToDips,
         static_cast<float>(GET_Y_LPARAM(lParam)) * pixelsToDips,
@@ -169,11 +176,16 @@ RectF DesktopHost::ClientBounds() const noexcept {
 }
 
 std::optional<DesktopHost::WidgetActionHit> DesktopHost::HitTestWidgetAction(PointF point) const {
-    const auto instanceId = scene_.HitTest(point, grid_, metrics_, ActiveMonitorId());
+    return HitTestWidgetAction(point, metrics_, HostMonitorId());
+}
+
+std::optional<DesktopHost::WidgetActionHit> DesktopHost::HitTestWidgetAction(
+    PointF point, const GridMetrics& metrics, std::wstring_view monitorId) const {
+    const auto instanceId = scene_.HitTest(point, grid_, metrics, monitorId);
     if (!instanceId) return std::nullopt;
     const WidgetInstance* widget = scene_.Find(*instanceId);
     if (!widget || !widget->content) return std::nullopt;
-    const RectF outer = OuterLayout::RectFor(*widget, grid_, metrics_);
+    const RectF outer = OuterLayout::RectFor(*widget, grid_, metrics);
     const auto action = widget->content->HitTestAction(WidgetHitTestContext{
         .point = point,
         .bounds = WidgetVisualStyle::ContentBounds(outer),
@@ -192,7 +204,12 @@ void DesktopHost::UpdateMetrics() {
         static_cast<float>(rc.right - rc.left) * pixelsToDips,
         static_cast<float>(rc.bottom - rc.top) * pixelsToDips,
     });
-    studio_.UpdateLayoutContext(metrics_, ClientBounds(), ActiveMonitorId());
+    if (activeMonitorId_.empty()) activeMonitorId_ = HostMonitorId();
+    if (activeMonitorId_ == HostMonitorId()) {
+        activeMetrics_ = metrics_;
+        activeBounds_ = ClientBounds();
+        studio_.UpdateLayoutContext(metrics_, activeBounds_, activeMonitorId_);
+    }
 }
 
 void DesktopHost::ToggleEditMode() {
@@ -204,20 +221,24 @@ void DesktopHost::SetEditMode(bool enabled) {
     if (!editMode_) {
         EndDrag();
     }
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    InvalidateDesktop();
 }
 
-void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer) {
+void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer, HWND captureWindow,
+    const GridMetrics& metrics, RectF bounds) {
     WidgetInstance* widget = scene_.Find(widgetId);
     if (!widget || widget->locked) return;
 
-    const RectF rect = OuterLayout::RectFor(*widget, grid_, metrics_);
+    const RectF rect = OuterLayout::RectFor(*widget, grid_, metrics);
     drag_ = DragState{
         .widgetId = std::string(widgetId),
         .offset = PointF{pointer.x - rect.x, pointer.y - rect.y},
+        .captureWindow = captureWindow,
+        .metrics = metrics,
+        .bounds = bounds,
         .moved = false,
     };
-    SetCapture(hwnd_);
+    SetCapture(captureWindow);
 }
 
 void DesktopHost::OpenWidgetLibrary() {
@@ -226,11 +247,13 @@ void DesktopHost::OpenWidgetLibrary() {
 
 void DesktopHost::OpenWidgetStudio() {
     const std::filesystem::path assetDirectory = sceneStore_.ConfigPath().parent_path() / L"assets";
-    if (!studio_.Open(hwnd_, instance_, scene_, grid_, metrics_, ClientBounds(), assetDirectory,
+    const GridMetrics studioMetrics = activeBounds_.width > 0.0f ? activeMetrics_ : metrics_;
+    const RectF studioBounds = activeBounds_.width > 0.0f ? activeBounds_ : ClientBounds();
+    if (!studio_.Open(hwnd_, instance_, scene_, grid_, studioMetrics, studioBounds, assetDirectory,
             ActiveMonitorId(), [this] {
         SaveScene();
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
     }, [this] { OpenWidgetLibrary(); })) {
         MessageBoxW(hwnd_, L"Widget Studio could not open its settings window.",
             L"Widget Studio", MB_OK | MB_ICONERROR);
@@ -242,11 +265,15 @@ void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
     SetEditMode(true);
     if (persist) SaveScene();
     ScheduleNextWidgetUpdate();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    InvalidateDesktop();
     studio_.Refresh();
 }
 
 std::wstring DesktopHost::ActiveMonitorId() const {
+    return activeMonitorId_.empty() ? HostMonitorId() : activeMonitorId_;
+}
+
+std::wstring DesktopHost::HostMonitorId() const {
     MONITORINFOEXW info{};
     info.cbSize = sizeof(info);
     const HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
@@ -255,11 +282,57 @@ std::wstring DesktopHost::ActiveMonitorId() const {
 }
 
 DesktopTargetBounds DesktopHost::ActiveDesktopTarget() const {
-    const MonitorDescriptor* monitor = monitorTopology_.Find(ActiveMonitorId());
+    const MonitorDescriptor* monitor = monitorTopology_.Find(HostMonitorId());
     if (!monitor) monitor = monitorTopology_.Primary();
     if (!monitor) return {};
     return DesktopTargetBounds{monitor->pixelX, monitor->pixelY,
         monitor->pixelWidth, monitor->pixelHeight, true};
+}
+
+void DesktopHost::ActivateMonitor(
+    std::wstring_view monitorId, const GridMetrics& metrics, RectF bounds) {
+    activeMonitorId_ = monitorId;
+    activeMetrics_ = metrics;
+    activeBounds_ = bounds;
+    studio_.UpdateLayoutContext(metrics, bounds, activeMonitorId_);
+}
+
+void DesktopHost::InvalidateDesktop(bool reloadWallpaper) {
+    if (reloadWallpaper) static_cast<void>(renderer_.ReloadWallpaper());
+    if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+    for (const auto& surface : secondarySurfaces_) surface->Invalidate(reloadWallpaper);
+}
+
+void DesktopHost::RebuildSecondarySurfaces() {
+    secondarySurfaces_.clear();
+    if (!desktopBackend_.IsExperimental()) return;
+    const std::wstring hostMonitor = HostMonitorId();
+    for (const MonitorDescriptor& monitor : monitorTopology_.Monitors()) {
+        if (monitor.id == hostMonitor) continue;
+        auto surface = std::make_unique<DesktopSurface>();
+        if (surface->Create(*this, instance_, monitor)) secondarySurfaces_.push_back(std::move(surface));
+    }
+    const auto active = std::find_if(secondarySurfaces_.begin(), secondarySurfaces_.end(),
+        [this](const auto& surface) { return surface->MonitorId() == activeMonitorId_; });
+    if (active != secondarySurfaces_.end()) {
+        ActivateMonitor((*active)->MonitorId(), (*active)->Metrics(), (*active)->Bounds());
+    } else {
+        ActivateMonitor(HostMonitorId(), metrics_, ClientBounds());
+    }
+}
+
+void DesktopHost::RefreshMonitorConfiguration() {
+    secondarySurfaces_.clear();
+    if (!monitorTopology_.Refresh()) return;
+    if (monitorTopology_.MigrateMissingWidgets(
+            scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
+    desktopBackend_.Detach(hwnd_);
+    static_cast<void>(desktopBackend_.AttachConfigured(hwnd_, ActiveDesktopTarget()));
+    UpdateMetrics();
+    ActivateMonitor(HostMonitorId(), metrics_, ClientBounds());
+    RebuildSecondarySurfaces();
+    InvalidateDesktop();
+    studio_.Refresh();
 }
 
 void DesktopHost::DeleteSelectedWidgets() {
@@ -267,7 +340,7 @@ void DesktopHost::DeleteSelectedWidgets() {
     if (scene_.RemoveSelectedWidgets() > 0) {
         SaveScene();
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         studio_.Refresh();
     }
 }
@@ -277,7 +350,7 @@ void DesktopHost::DuplicatePrimaryWidget() {
     if (primary && scene_.DuplicateWidget(*primary)) {
         SaveScene();
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         studio_.Refresh();
     }
 }
@@ -291,7 +364,7 @@ void DesktopHost::TogglePrimaryWidgetLock() {
     scene_.SetWidgetLocked(*primary, lock);
     if (lock) EndDrag();
     SaveScene();
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    InvalidateDesktop();
     studio_.Refresh();
 }
 
@@ -350,27 +423,29 @@ void DesktopHost::UpdateDrag(PointF pointer) {
     if (!widget || widget->locked) return;
 
     if (widget->layoutMode == LayoutMode::Grid) {
-        const GridPlacement moved = grid_.MoveToPoint(widget->grid, pointer, drag_->offset, metrics_);
+        const GridPlacement moved = grid_.MoveToPoint(
+            widget->grid, pointer, drag_->offset, drag_->metrics);
         if (moved.column != widget->grid.column || moved.row != widget->grid.row) {
             widget->grid = moved;
             drag_->moved = true;
         }
     } else {
         const FreePlacement moved = OuterLayout::MoveFreeToPoint(
-            widget->free, pointer, drag_->offset, ClientBounds());
+            widget->free, pointer, drag_->offset, drag_->bounds);
         if (moved.x != widget->free.x || moved.y != widget->free.y) {
             widget->free = moved;
             drag_->moved = true;
         }
     }
-    InvalidateRect(hwnd_, nullptr, FALSE);
+    InvalidateDesktop();
 }
 
 void DesktopHost::EndDrag() {
     if (drag_) {
         const bool moved = drag_->moved;
+        const HWND captureWindow = drag_->captureWindow;
         drag_.reset();
-        if (GetCapture() == hwnd_) {
+        if (GetCapture() == captureWindow) {
             ReleaseCapture();
         }
         if (moved) SaveScene();
@@ -382,19 +457,80 @@ void DesktopHost::Paint() {
     PAINTSTRUCT ps{};
     BeginPaint(hwnd_, &ps);
     const HRESULT renderResult = renderer_.Render(
-        scene_, grid_, metrics_, editMode_, 1.0f, {}, ActiveMonitorId());
+        scene_, grid_, metrics_, editMode_, 1.0f, {}, HostMonitorId());
     EndPaint(hwnd_, &ps);
     if (renderResult == D2DERR_RECREATE_TARGET) {
         InvalidateRect(hwnd_, nullptr, FALSE);
     }
 }
 
+LRESULT DesktopHost::HandleSurfaceNcHitTest(
+    DesktopSurface& surface, WPARAM wParam, LPARAM lParam) {
+    const LRESULT defaultResult = DefWindowProcW(surface.Window(), WM_NCHITTEST, wParam, lParam);
+    if (defaultResult != HTCLIENT || editMode_) return defaultResult;
+    POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+    if (!ScreenToClient(surface.Window(), &point)) return HTTRANSPARENT;
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, surface.Dpi()));
+    const PointF clientPoint{static_cast<float>(point.x) * pixelsToDips,
+        static_cast<float>(point.y) * pixelsToDips};
+    return HitTestWidgetAction(clientPoint, surface.Metrics(), surface.MonitorId())
+        ? HTCLIENT : HTTRANSPARENT;
+}
+
+void DesktopHost::HandleSurfaceLeftDown(
+    DesktopSurface& surface, WPARAM, LPARAM lParam) {
+    ActivateMonitor(surface.MonitorId(), surface.Metrics(), surface.Bounds());
+    const PointF point = ClientPointFromLParam(lParam, surface.Dpi());
+    if (const auto action = HitTestWidgetAction(point, surface.Metrics(), surface.MonitorId())) {
+        WidgetInstance* widget = scene_.Find(action->instanceId);
+        if (widget && widget->content) static_cast<void>(widget->content->InvokeAction(action->actionId));
+        ScheduleNextWidgetUpdate();
+        surface.Invalidate();
+        return;
+    }
+    if (!editMode_) return;
+    const auto hit = scene_.HitTest(point, grid_, surface.Metrics(), surface.MonitorId());
+    if (!hit) {
+        scene_.ClearSelection();
+        InvalidateDesktop();
+        studio_.Refresh();
+        return;
+    }
+    scene_.Select(*hit, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
+    const WidgetInstance* selected = scene_.Find(*hit);
+    if (selected && selected->selected) {
+        BeginDrag(*hit, point, surface.Window(), surface.Metrics(), surface.Bounds());
+    }
+    InvalidateDesktop();
+    studio_.Refresh();
+}
+
+void DesktopHost::HandleSurfaceMouseMove(
+    DesktopSurface& surface, WPARAM wParam, LPARAM lParam) {
+    if (editMode_ && drag_ && drag_->captureWindow == surface.Window() && (wParam & MK_LBUTTON)) {
+        UpdateDrag(ClientPointFromLParam(lParam, surface.Dpi()));
+    } else if (drag_ && drag_->captureWindow == surface.Window() && !(wParam & MK_LBUTTON)) {
+        EndDrag();
+    }
+}
+
+bool DesktopHost::HandleSurfaceKeyDown(WPARAM key) {
+    if (key == VK_ESCAPE && editMode_) { SetEditMode(false); return true; }
+    if (editMode_ && key == VK_DELETE) { DeleteSelectedWidgets(); return true; }
+    if (editMode_ && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+        if (key == 'D') { DuplicatePrimaryWidget(); return true; }
+        if (key == 'L') { TogglePrimaryWidgetLock(); return true; }
+    }
+    return false;
+}
+
 LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     if (taskbarCreatedMessage_ != 0 && message == taskbarCreatedMessage_) {
         tray_.RestoreAfterExplorerRestart();
         desktopBackend_.Reattach(hwnd_);
+        RebuildSecondarySurfaces();
         UpdateMetrics();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         return 0;
     }
     switch (message) {
@@ -415,6 +551,13 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
 
+    case WM_MOVE:
+        if (!desktopBackend_.IsExperimental()) {
+            const std::wstring hostMonitor = HostMonitorId();
+            ActivateMonitor(hostMonitor, metrics_, ClientBounds());
+        }
+        return 0;
+
     case WM_DPICHANGED: {
         dpi_ = std::max(96u, static_cast<UINT>(HIWORD(wParam)));
         renderer_.SetDpi(static_cast<float>(dpi_));
@@ -433,34 +576,26 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     }
 
     case WM_SETTINGCHANGE:
-        renderer_.ReloadWallpaper();
+        if (wParam == SPI_SETWORKAREA) RefreshMonitorConfiguration();
+        InvalidateDesktop(true);
         studio_.InvalidatePreview(true);
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
 
     case WM_DISPLAYCHANGE:
-        if (monitorTopology_.Refresh()) {
-            if (monitorTopology_.MigrateMissingWidgets(
-                    scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
-            desktopBackend_.Detach(hwnd_);
-            desktopBackend_.AttachConfigured(hwnd_, ActiveDesktopTarget());
-            UpdateMetrics();
-            InvalidateRect(hwnd_, nullptr, FALSE);
-            studio_.Refresh();
-        }
+        RefreshMonitorConfiguration();
         return 0;
 
     case WM_TIMECHANGE:
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         studio_.InvalidatePreview();
         return 0;
 
     case WM_TIMER:
         if (wParam == kWidgetUpdateTimer) {
             ScheduleNextWidgetUpdate();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            InvalidateDesktop();
             studio_.InvalidatePreview();
             return 0;
         }
@@ -468,7 +603,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case kMediaSessionChangedMessage:
         ScheduleNextWidgetUpdate();
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         studio_.InvalidatePreview();
         return 0;
 
@@ -480,6 +615,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 1;
 
     case WM_LBUTTONDOWN: {
+        ActivateMonitor(HostMonitorId(), metrics_, ClientBounds());
         const PointF point = ClientPointFromLParam(lParam);
         if (const auto action = HitTestWidgetAction(point)) {
             WidgetInstance* widget = scene_.Find(action->instanceId);
@@ -487,14 +623,14 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
                 static_cast<void>(widget->content->InvokeAction(action->actionId));
             }
             ScheduleNextWidgetUpdate();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            InvalidateDesktop();
             return 0;
         }
         if (!editMode_) return 0;
-        const auto hit = scene_.HitTest(point, grid_, metrics_, ActiveMonitorId());
+        const auto hit = scene_.HitTest(point, grid_, metrics_, HostMonitorId());
         if (!hit) {
             scene_.ClearSelection();
-            InvalidateRect(hwnd_, nullptr, FALSE);
+            InvalidateDesktop();
             studio_.Refresh();
             return 0;
         }
@@ -503,17 +639,17 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         scene_.Select(*hit, additive);
         const WidgetInstance* selected = scene_.Find(*hit);
         if (selected && selected->selected) {
-            BeginDrag(*hit, point);
+            BeginDrag(*hit, point, hwnd_, metrics_, ClientBounds());
         }
-        InvalidateRect(hwnd_, nullptr, FALSE);
+        InvalidateDesktop();
         studio_.Refresh();
         return 0;
     }
 
     case WM_MOUSEMOVE:
-        if (editMode_ && drag_ && (wParam & MK_LBUTTON)) {
+        if (editMode_ && drag_ && drag_->captureWindow == hwnd_ && (wParam & MK_LBUTTON)) {
             UpdateDrag(ClientPointFromLParam(lParam));
-        } else if (drag_ && !(wParam & MK_LBUTTON)) {
+        } else if (drag_ && drag_->captureWindow == hwnd_ && !(wParam & MK_LBUTTON)) {
             EndDrag();
         }
         return 0;
@@ -590,6 +726,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_DESTROY:
         if (mediaSession_) mediaSession_->SetChangedCallback({});
         studio_.Close();
+        secondarySurfaces_.clear();
         desktopBackend_.Detach(hwnd_);
         KillTimer(hwnd_, kWidgetUpdateTimer);
         UnregisterHotKey(hwnd_, kHotkeyToggleEdit);

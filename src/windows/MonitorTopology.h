@@ -4,6 +4,7 @@
 
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace ws {
@@ -23,6 +24,9 @@ struct MonitorDescriptor {
 
 class MonitorTopology {
 public:
+    MonitorTopology() = default;
+    explicit MonitorTopology(std::vector<MonitorDescriptor> monitors)
+        : monitors_(std::move(monitors)) {}
     bool Refresh();
     [[nodiscard]] const std::vector<MonitorDescriptor>& Monitors() const noexcept { return monitors_; }
     [[nodiscard]] const MonitorDescriptor* Find(std::wstring_view id) const noexcept;

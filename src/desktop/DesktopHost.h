@@ -17,11 +17,13 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 #include <windows.h>
 
 namespace ws {
 
 class MediaSessionService;
+class DesktopSurface;
 
 class DesktopHost {
 public:
@@ -32,6 +34,7 @@ public:
     int RunMessageLoop();
 
 private:
+    friend class DesktopSurface;
     struct WidgetActionHit {
         std::string instanceId;
         std::string actionId;
@@ -40,6 +43,9 @@ private:
     struct DragState {
         std::string widgetId;
         PointF offset{};
+        HWND captureWindow{};
+        GridMetrics metrics{};
+        RectF bounds{};
         bool moved{false};
     };
 
@@ -50,7 +56,8 @@ private:
     void ToggleEditMode();
     void SetEditMode(bool enabled);
     void UpdateMetrics();
-    void BeginDrag(std::string_view widgetId, PointF pointer);
+    void BeginDrag(std::string_view widgetId, PointF pointer, HWND captureWindow,
+        const GridMetrics& metrics, RectF bounds);
     void UpdateDrag(PointF pointer);
     void EndDrag();
     void Paint();
@@ -63,18 +70,36 @@ private:
     [[nodiscard]] SceneLoadStatus LoadScene();
     void SaveScene();
     void ScheduleNextWidgetUpdate();
+    void InvalidateDesktop(bool reloadWallpaper = false);
+    void RebuildSecondarySurfaces();
+    void RefreshMonitorConfiguration();
+    void ActivateMonitor(std::wstring_view monitorId, const GridMetrics& metrics, RectF bounds);
     [[nodiscard]] std::wstring ActiveMonitorId() const;
     [[nodiscard]] DesktopTargetBounds ActiveDesktopTarget() const;
+    [[nodiscard]] std::wstring HostMonitorId() const;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
+    [[nodiscard]] static PointF ClientPointFromLParam(LPARAM lParam, UINT dpi) noexcept;
     [[nodiscard]] RectF ClientBounds() const noexcept;
     [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(PointF point) const;
+    [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(
+        PointF point, const GridMetrics& metrics, std::wstring_view monitorId) const;
+    LRESULT HandleSurfaceNcHitTest(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
+    void HandleSurfaceLeftDown(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
+    void HandleSurfaceMouseMove(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
+    bool HandleSurfaceKeyDown(WPARAM key);
+    [[nodiscard]] GridLayout& Grid() noexcept { return grid_; }
+    [[nodiscard]] WidgetScene& Scene() noexcept { return scene_; }
+    [[nodiscard]] bool EditMode() const noexcept { return editMode_; }
 
     HINSTANCE instance_{};
     HWND hwnd_{};
     UINT dpi_{96};
     UINT taskbarCreatedMessage_{};
     bool editMode_{true};
+    std::wstring activeMonitorId_;
+    GridMetrics activeMetrics_{};
+    RectF activeBounds_{};
 
     Renderer renderer_{};
     GridLayout grid_{};
@@ -87,6 +112,7 @@ private:
     bool persistenceErrorShown_{false};
     TrayController tray_{};
     DesktopBackendController desktopBackend_{};
+    std::vector<std::unique_ptr<DesktopSurface>> secondarySurfaces_;
     MonitorTopology monitorTopology_{};
     WidgetLibraryWindow library_{};
     WidgetStudioWindow studio_{};

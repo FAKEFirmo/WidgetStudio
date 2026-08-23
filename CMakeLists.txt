@@ -17,6 +17,7 @@ add_executable(WidgetStudio WIN32
     src/app/WidgetStudio.rc
     src/desktop/DesktopBackendController.cpp
     src/desktop/DesktopHost.cpp
+    src/desktop/DesktopSurface.cpp
     src/layout/GridLayout.cpp
     src/layout/AuthoredContentLayout.cpp
     src/layout/Alignment.cpp
@@ -84,6 +85,7 @@ if(BUILD_TESTING)
         src/widgets/WidgetRegistry.cpp
         src/widgets/calendar/CalendarModel.cpp
         src/widgets/photo/PhotoLayout.cpp
+        src/windows/MonitorTopology.cpp
     )
     target_include_directories(WidgetStudioLogicTests PRIVATE src)
     target_compile_definitions(WidgetStudioLogicTests PRIVATE
@@ -97,6 +99,6 @@ if(BUILD_TESTING)
     if(MSVC)
         target_compile_options(WidgetStudioLogicTests PRIVATE /W4 /permissive- /EHsc /utf-8)
     endif()
-    target_link_libraries(WidgetStudioLogicTests PRIVATE d2d1 dwrite shell32 ole32)
+    target_link_libraries(WidgetStudioLogicTests PRIVATE d2d1 dwrite shell32 shcore ole32)
     add_test(NAME WidgetStudioLogicTests COMMAND WidgetStudioLogicTests)
 endif()

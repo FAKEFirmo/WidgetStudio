@@ -9,6 +9,7 @@
 #include "widgets/WidgetRegistry.h"
 #include "widgets/calendar/CalendarModel.h"
 #include "widgets/photo/PhotoLayout.h"
+#include "windows/MonitorTopology.h"
 
 #include <array>
 #include <chrono>
@@ -21,6 +22,7 @@
 #include <set>
 #include <stdexcept>
 #include <string>
+#include <vector>
 #include <windows.h>
 
 namespace {
@@ -100,6 +102,34 @@ void TestRegistryAndPlacement() {
         "hit testing should isolate the first monitor scene");
     Require(secondMonitorHit == otherMonitor->instanceId,
         "hit testing should isolate the second monitor scene");
+}
+
+void TestMonitorMigration() {
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    ws::WidgetInstance* missing = scene.CreateWidget("test", L"REMOVED-DISPLAY");
+    ws::WidgetInstance* present = scene.CreateWidget("test", L"DISPLAY-PRIMARY");
+    Require(missing && present, "monitor migration fixtures should be created");
+    missing->grid = {20, 20, 20, 20};
+    missing->free = {-20.0f, 900.0f, 2000.0f, 900.0f};
+    const ws::MonitorTopology topology(std::vector<ws::MonitorDescriptor>{ws::MonitorDescriptor{
+        .id = L"DISPLAY-PRIMARY",
+        .workAreaDips = {0.0f, 0.0f, 800.0f, 600.0f},
+        .pixelWidth = 1200,
+        .pixelHeight = 900,
+        .dpi = 144,
+        .primary = true,
+    }});
+    Require(topology.MigrateMissingWidgets(scene, 12, 7) == 1,
+        "only widgets assigned to missing monitors should migrate");
+    Require(missing->monitorId == L"DISPLAY-PRIMARY" && present->monitorId == L"DISPLAY-PRIMARY",
+        "missing widgets should migrate to the primary monitor");
+    Require(missing->grid.column == 0 && missing->grid.row == 0 &&
+        missing->grid.columnSpan == 12 && missing->grid.rowSpan == 7,
+        "migrated grid geometry should clamp to the destination grid");
+    Require(missing->free.x == 0.0f && missing->free.y == 0.0f &&
+        missing->free.width == 800.0f && missing->free.height == 600.0f,
+        "migrated free geometry should clamp to the destination work area");
 }
 
 ws::WidgetPersistenceRecord ExampleRecord() {
@@ -315,6 +345,7 @@ void TestFreeLayoutAndAlignment() {
 int main() {
     try {
         TestRegistryAndPlacement();
+        TestMonitorMigration();
         TestSerialization();
         TestAuthoredLayout();
         TestAtomicStoreAndRestore();

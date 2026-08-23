@@ -103,6 +103,7 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 - wallpaper/cache refresh
 - startup option and packaging
 - monitor-scoped rendering and hit testing
+- simultaneous per-monitor desktop surfaces sharing one scene and process
 - effective-DPI/work-area enumeration and missing-monitor migration
 - Per-Monitor V2 manifest, version resource, static runtime, and portable CMake install
 

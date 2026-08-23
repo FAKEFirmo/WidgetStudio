@@ -115,7 +115,7 @@ Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fil
 
 `IDesktopBackend` isolates attachment behavior from the scene, renderer, interaction system, and widgets. `DesktopBackendController` selects the reliable normal-window backend unless the process-local `WIDGETSTUDIO_DESKTOP_BACKEND=workerw` option requests the experimental backend. WorkerW discovery and attachment can fail without affecting widget state; the controller falls back to a normal window and reattaches after Explorer broadcasts `TaskbarCreated`.
 
-`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. Rendering and hit testing filter on the active monitor ID so instances from different monitor scenes cannot overlap logically. Display changes refresh topology; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved.
+`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. Rendering and hit testing filter on the owning monitor ID so instances from different monitor scenes cannot overlap logically. In experimental desktop-attached mode, one primary host surface and a lightweight `DesktopSurface` for every additional display render the same process-owned scene with per-window DPI, grid metrics, input, and renderer resources. The last interacted surface becomes the Widget Studio and Widget Library target. Display changes rebuild those surfaces; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved.
 
 ## Delivery boundary
 
