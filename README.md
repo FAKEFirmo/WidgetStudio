@@ -47,6 +47,8 @@ $env:WIDGETSTUDIO_DESKTOP_BACKEND = 'workerw'
 
 WorkerW is undocumented Explorer behavior; attachment failure automatically falls back to the normal window.
 
+WidgetStudio starts in passive mode. Use the tray menu or `Ctrl+Alt+W` to enter Edit Mode.
+
 - Click selects; Shift-click toggles multi-selection.
 - Drag moves unlocked widgets in the active layout mode.
 - `Ctrl+Alt+W` toggles Edit Mode; `Esc` exits it.

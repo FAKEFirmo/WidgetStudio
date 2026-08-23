@@ -20,11 +20,13 @@ public:
 
     bool Open(HWND owner, HINSTANCE instance, WidgetScene& scene, GridLayout& grid,
         GridMetrics layoutMetrics, RectF layoutBounds, std::filesystem::path assetDirectory,
-        std::wstring monitorId, std::function<void()> sceneChanged, std::function<void()> openLibrary);
+        std::wstring monitorId, std::function<void()> sceneChanged,
+        std::function<void()> selectionChanged, std::function<void()> openLibrary);
     void Close() noexcept;
     void Refresh();
     void InvalidatePreview(bool reloadWallpaper = false);
     void UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId);
+    [[nodiscard]] HWND Window() const noexcept { return hwnd_; }
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -47,7 +49,6 @@ private:
     [[nodiscard]] WidgetInstance* PrimaryWidget() noexcept;
 
     HINSTANCE instance_{};
-    HWND owner_{};
     HWND hwnd_{};
     HWND preview_{};
     HWND layoutMode_{};
@@ -79,6 +80,7 @@ private:
     std::unique_ptr<Renderer> previewRenderer_;
     std::unique_ptr<AssetLibrary> assetLibrary_;
     std::function<void()> sceneChanged_;
+    std::function<void()> selectionChanged_;
     std::function<void()> openLibrary_;
 };
 

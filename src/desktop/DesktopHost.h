@@ -96,7 +96,7 @@ private:
     HWND hwnd_{};
     UINT dpi_{96};
     UINT taskbarCreatedMessage_{};
-    bool editMode_{true};
+    bool editMode_{false};
     bool hotkeyRegistered_{false};
     std::wstring activeMonitorId_;
     GridMetrics activeMetrics_{};

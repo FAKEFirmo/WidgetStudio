@@ -387,6 +387,11 @@ HRESULT Renderer::Render(
     HRESULT hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
 
+    std::erase_if(glassCache_, [&scene](const auto& entry) {
+        return std::none_of(scene.Widgets().begin(), scene.Widgets().end(),
+            [&entry](const WidgetInstance& widget) { return widget.instanceId == entry.first; });
+    });
+
     renderTarget_->BeginDraw();
     DrawWallpaper();
     renderTarget_->SetTransform(D2D1::Matrix3x2F(

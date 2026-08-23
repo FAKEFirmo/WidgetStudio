@@ -36,7 +36,7 @@ bool WidgetLibraryWindow::Open(HWND owner, HINSTANCE instance, const WidgetRegis
 
     registry_ = &registry;
     createWidget_ = std::move(createWidget);
-    hwnd_ = CreateWindowExW(WS_EX_DLGMODALFRAME, kLibraryClassName, L"Add Widget",
+    hwnd_ = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_APPWINDOW, kLibraryClassName, L"Add Widget",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
         430, 330, owner, nullptr, instance, this);
     if (!hwnd_) return false;

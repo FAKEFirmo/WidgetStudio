@@ -127,6 +127,10 @@ int DesktopHost::RunMessageLoop() {
         if (status == 0) {
             return static_cast<int>(message.wParam);
         }
+        if ((library_.Window() && IsDialogMessageW(library_.Window(), &message)) ||
+            (studio_.Window() && IsDialogMessageW(studio_.Window(), &message))) {
+            continue;
+        }
         TranslateMessage(&message);
         DispatchMessageW(&message);
     }
@@ -243,19 +247,21 @@ void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer, HWND capt
 }
 
 void DesktopHost::OpenWidgetLibrary() {
-    library_.Open(hwnd_, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
+    const HWND owner = desktopBackend_.IsExperimental() ? nullptr : hwnd_;
+    library_.Open(owner, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
 }
 
 void DesktopHost::OpenWidgetStudio() {
     const std::filesystem::path assetDirectory = sceneStore_.ConfigPath().parent_path() / L"assets";
     const GridMetrics studioMetrics = activeBounds_.width > 0.0f ? activeMetrics_ : metrics_;
     const RectF studioBounds = activeBounds_.width > 0.0f ? activeBounds_ : ClientBounds();
-    if (!studio_.Open(hwnd_, instance_, scene_, grid_, studioMetrics, studioBounds, assetDirectory,
+    const HWND owner = desktopBackend_.IsExperimental() ? nullptr : hwnd_;
+    if (!studio_.Open(owner, instance_, scene_, grid_, studioMetrics, studioBounds, assetDirectory,
             ActiveMonitorId(), [this] {
         SaveScene();
         ScheduleNextWidgetUpdate();
         InvalidateDesktop();
-    }, [this] { OpenWidgetLibrary(); })) {
+    }, [this] { InvalidateDesktop(); }, [this] { OpenWidgetLibrary(); })) {
         MessageBoxW(hwnd_, L"Widget Studio could not open its settings window.",
             L"Widget Studio", MB_OK | MB_ICONERROR);
     }

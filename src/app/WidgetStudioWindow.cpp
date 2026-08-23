@@ -64,10 +64,10 @@ WidgetStudioWindow::~WidgetStudioWindow() { Close(); }
 
 bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene, GridLayout& grid,
     GridMetrics layoutMetrics, RectF layoutBounds, std::filesystem::path assetDirectory,
-    std::wstring monitorId, std::function<void()> sceneChanged, std::function<void()> openLibrary) {
+    std::wstring monitorId, std::function<void()> sceneChanged,
+    std::function<void()> selectionChanged, std::function<void()> openLibrary) {
     if (hwnd_) { ShowWindow(hwnd_, SW_SHOWNORMAL); SetForegroundWindow(hwnd_); Refresh(); return true; }
     instance_ = instance;
-    owner_ = owner;
     scene_ = &scene;
     grid_ = &grid;
     layoutMetrics_ = layoutMetrics;
@@ -75,6 +75,7 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     monitorId_ = std::move(monitorId);
     assetLibrary_ = std::make_unique<AssetLibrary>(std::move(assetDirectory));
     sceneChanged_ = std::move(sceneChanged);
+    selectionChanged_ = std::move(selectionChanged);
     openLibrary_ = std::move(openLibrary);
 
     WNDCLASSEXW previewClass{};
@@ -113,7 +114,6 @@ void WidgetStudioWindow::Close() noexcept {
     assetLibrary_.reset();
     hwnd_ = nullptr;
     preview_ = nullptr;
-    owner_ = nullptr;
 }
 
 void WidgetStudioWindow::Refresh() {
@@ -293,7 +293,8 @@ void WidgetStudioWindow::PaintPreview() {
 WidgetInstance* WidgetStudioWindow::PrimaryWidget() noexcept {
     if (!scene_) return nullptr;
     const auto id = scene_->PrimarySelection();
-    return id ? scene_->Find(*id) : nullptr;
+    WidgetInstance* widget = id ? scene_->Find(*id) : nullptr;
+    return widget && widget->monitorId == monitorId_ ? widget : nullptr;
 }
 
 void WidgetStudioWindow::UpdateControlsFromSelection() {
@@ -369,9 +370,13 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
     WidgetInstance* primary = PrimaryWidget();
     if (!primary) return;
     const LayoutMode mode = SendMessageW(layoutMode_, CB_GETCURSEL, 0, 0) == 1 ? LayoutMode::Free : LayoutMode::Grid;
-    const bool single = scene_->SelectionCount() == 1;
+    const std::size_t activeSelectionCount = static_cast<std::size_t>(std::count_if(
+        scene_->Widgets().begin(), scene_->Widgets().end(), [this](const WidgetInstance& widget) {
+            return widget.selected && widget.monitorId == monitorId_;
+        }));
+    const bool single = activeSelectionCount == 1;
     for (auto& widget : scene_->Widgets()) {
-        if (!widget.selected) continue;
+        if (!widget.selected || widget.monitorId != monitorId_) continue;
         scene_->SetWidgetLayoutMode(widget.instanceId, mode, *grid_, layoutMetrics_);
         widget.locked = SendMessageW(locked_, BM_GETCHECK, 0, 0) == BST_CHECKED;
         widget.contentScale = std::clamp(static_cast<float>(ReadNumber(contentScale_, widget.contentScale)), 0.25f, 4.0f);
@@ -543,7 +548,7 @@ LRESULT WidgetStudioWindow::HandlePreviewMessage(UINT message, WPARAM wParam, LP
         else scene_->ClearSelection();
         UpdateControlsFromSelection();
         InvalidateRect(preview_, nullptr, FALSE);
-        if (owner_) InvalidateRect(owner_, nullptr, FALSE);
+        if (selectionChanged_) selectionChanged_();
         return 0;
     }
     default: break;

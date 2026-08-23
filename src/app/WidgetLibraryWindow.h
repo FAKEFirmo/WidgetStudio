@@ -16,6 +16,7 @@ public:
     bool Open(HWND owner, HINSTANCE instance, const WidgetRegistry& registry,
         std::function<void(std::string)> createWidget);
     void Close() noexcept;
+    [[nodiscard]] HWND Window() const noexcept { return hwnd_; }
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
