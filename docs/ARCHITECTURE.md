@@ -84,4 +84,8 @@ Widgets draw reference geometry through one Direct2D transform. Clock uses a 270
 
 ## Photo invariant
 
-Source-image aspect ratio is immutable. Rendering supports only proportional `cover` (uniform scale plus crop) and `contain` (uniform scale plus letterbox/pillarbox).
+Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fill` (uniform scale plus focal crop) and `fit` (uniform scale plus letterbox/pillarbox) calculations as pure tested logic. `PhotoWidget` decodes local files with WIC and caches its target-dependent Direct2D bitmap by render-resource generation. `AssetLibrary` copies chosen source files into application-owned local storage through a temporary file and same-volume move.
+
+## Calendar model
+
+`CalendarModel` is widget-domain logic independent of rendering. It produces a fixed six-week grid with adjacent-month cells, today/weekend flags, Gregorian leap-year handling, and Monday/Sunday start. `CalendarWidget` localizes month, year, and weekday labels through Windows and requests its next content update at local midnight.

@@ -17,12 +17,17 @@ add_executable(WidgetStudio WIN32
     src/layout/AuthoredContentLayout.cpp
     src/persistence/SceneJsonCodec.cpp
     src/persistence/SceneStore.cpp
+    src/persistence/AssetLibrary.cpp
     src/rendering/Renderer.cpp
     src/scene/WidgetScene.cpp
     src/widgets/BuiltInWidgets.cpp
+    src/widgets/CalendarWidget.cpp
     src/widgets/ClockWidget.cpp
     src/widgets/DebugWidget.cpp
+    src/widgets/PhotoWidget.cpp
     src/widgets/WidgetRegistry.cpp
+    src/widgets/calendar/CalendarModel.cpp
+    src/widgets/photo/PhotoLayout.cpp
 )
 
 target_include_directories(WidgetStudio PRIVATE src)
@@ -55,11 +60,14 @@ if(BUILD_TESTING)
         tests/LogicTests.cpp
         src/layout/GridLayout.cpp
         src/layout/AuthoredContentLayout.cpp
+        src/persistence/AssetLibrary.cpp
         src/persistence/SceneJsonCodec.cpp
         src/persistence/SceneStore.cpp
         src/scene/WidgetScene.cpp
         src/widgets/ClockWidget.cpp
         src/widgets/WidgetRegistry.cpp
+        src/widgets/calendar/CalendarModel.cpp
+        src/widgets/photo/PhotoLayout.cpp
     )
     target_include_directories(WidgetStudioLogicTests PRIVATE src)
     target_compile_definitions(WidgetStudioLogicTests PRIVATE

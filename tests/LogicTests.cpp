@@ -1,15 +1,20 @@
 #include "persistence/SceneJsonCodec.h"
 #include "persistence/SceneStore.h"
+#include "persistence/AssetLibrary.h"
 #include "layout/AuthoredContentLayout.h"
 #include "scene/WidgetScene.h"
 #include "widgets/ClockWidget.h"
 #include "widgets/WidgetRegistry.h"
+#include "widgets/calendar/CalendarModel.h"
+#include "widgets/photo/PhotoLayout.h"
 
 #include <array>
 #include <chrono>
 #include <cmath>
 #include <filesystem>
+#include <fstream>
 #include <iostream>
+#include <iterator>
 #include <limits>
 #include <set>
 #include <stdexcept>
@@ -202,6 +207,60 @@ void TestClockStateAndScheduling() {
     Require(clock.Settings().size() == 4, "clock should expose generic setting definitions");
 }
 
+void TestCalendarModel() {
+    Require(ws::CalendarModel::IsLeapYear(2000) && !ws::CalendarModel::IsLeapYear(2100),
+        "Gregorian leap-year rules should be applied");
+    Require(ws::CalendarModel::DaysInMonth(2024, 2) == 29 &&
+        ws::CalendarModel::DayOfWeek({2026, 8, 1}) == 6,
+        "month length and weekday calculations should be deterministic");
+
+    const auto mondayGrid = ws::CalendarModel::Build(2026, 8, true, {2026, 8, 23});
+    Require(mondayGrid.front().date.year == 2026 && mondayGrid.front().date.month == 7 &&
+        mondayGrid.front().date.day == 27,
+        "Monday-first calendar should include the correct leading adjacent-month date");
+    Require(mondayGrid[27].today && mondayGrid[27].weekend,
+        "today and weekend flags should reflect the represented civil date");
+
+    const auto sundayGrid = ws::CalendarModel::Build(2026, 8, false, {2026, 8, 23});
+    Require(sundayGrid.front().date.day == 26 && sundayGrid.front().date.month == 7,
+        "Sunday-first calendar should shift the six-week grid correctly");
+}
+
+void TestPhotoLayoutAndAssetImport() {
+    const ws::PhotoLayoutResult fill = ws::PhotoLayout::Calculate(
+        {400.0f, 200.0f}, {10.0f, 20.0f, 100.0f, 100.0f}, ws::PhotoFitMode::Fill, 1.0f, 0.5f);
+    Require(std::abs(fill.source.width - 200.0f) < 0.0001f &&
+        std::abs(fill.source.height - 200.0f) < 0.0001f &&
+        std::abs(fill.source.x - 200.0f) < 0.0001f,
+        "fill mode should crop proportionally around the continuous focal point");
+    const ws::PhotoLayoutResult fit = ws::PhotoLayout::Calculate(
+        {400.0f, 200.0f}, {10.0f, 20.0f, 100.0f, 100.0f}, ws::PhotoFitMode::Fit, 0.5f, 0.5f);
+    Require(std::abs(fit.destination.width - 100.0f) < 0.0001f &&
+        std::abs(fit.destination.height - 50.0f) < 0.0001f &&
+        std::abs(fit.destination.y - 45.0f) < 0.0001f,
+        "fit mode should preserve aspect ratio and center the whole image");
+
+    const auto suffix = std::chrono::steady_clock::now().time_since_epoch().count();
+    const std::filesystem::path directory = std::filesystem::temp_directory_path() /
+        (L"WidgetStudioAssetTests-" + std::to_wstring(GetCurrentProcessId()) + L"-" + std::to_wstring(suffix));
+    std::filesystem::create_directories(directory);
+    struct Cleanup {
+        std::filesystem::path path;
+        ~Cleanup() { std::error_code error; std::filesystem::remove_all(path, error); }
+    } cleanup{directory};
+    const std::filesystem::path source = directory / L"source.png";
+    { std::ofstream output(source, std::ios::binary); output << "local-image-bytes"; }
+    ws::AssetLibrary library(directory / L"assets");
+    std::wstring error;
+    const auto imported = library.Import(source, error);
+    Require(imported.has_value() && imported->parent_path() == library.Directory() &&
+        std::filesystem::exists(*imported),
+        "asset import should copy into application-owned storage");
+    std::ifstream input(*imported, std::ios::binary);
+    const std::string bytes((std::istreambuf_iterator<char>(input)), std::istreambuf_iterator<char>());
+    Require(bytes == "local-image-bytes", "asset import should preserve file contents");
+}
+
 } // namespace
 
 int main() {
@@ -211,6 +270,8 @@ int main() {
         TestAuthoredLayout();
         TestAtomicStoreAndRestore();
         TestClockStateAndScheduling();
+        TestCalendarModel();
+        TestPhotoLayoutAndAssetImport();
         std::cout << "WidgetStudio logic tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

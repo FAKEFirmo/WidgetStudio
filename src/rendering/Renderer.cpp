@@ -105,6 +105,7 @@ HRESULT Renderer::CreateDeviceResources() {
         renderTarget_.GetAddressOf());
     if (SUCCEEDED(hr)) {
         renderTarget_->SetDpi(dpi_, dpi_);
+        ++resourceGeneration_;
     }
     return hr;
 }
@@ -267,12 +268,14 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
         widget.content->Render(WidgetRenderContext{
             .renderTarget = *renderTarget_,
             .dwriteFactory = *dwriteFactory_,
+            .wicFactory = *wicFactory_,
             .titleFormat = *labelFormat_,
             .detailFormat = *smallFormat_,
             .bounds = WidgetVisualStyle::ContentBounds(rect),
             .instanceId = widget.instanceId,
             .contentScale = widget.contentScale,
             .lightAppearance = widget.appearance.mode == AppearanceMode::Light,
+            .resourceGeneration = resourceGeneration_,
         });
     }
 

@@ -2,6 +2,7 @@
 
 #include "layout/AuthoredContentLayout.h"
 #include "rendering/WidgetRenderContext.h"
+#include "rendering/ScopedRenderTransform.h"
 
 #include <array>
 #include <chrono>
@@ -88,11 +89,9 @@ void ClockWidget::Render(const WidgetRenderContext& context) const {
 
     const AuthoredLayoutResult fit = AuthoredContentLayout::FitReference(
         SizeF{270.0f, 120.0f}, context.bounds, context.contentScale);
-    D2D1_MATRIX_3X2_F previousTransform{};
-    context.renderTarget.GetTransform(&previousTransform);
     const D2D1_MATRIX_3X2_F transform = D2D1::Matrix3x2F::Scale(fit.scale, fit.scale) *
         D2D1::Matrix3x2F::Translation(fit.origin.x, fit.origin.y);
-    context.renderTarget.SetTransform(transform * previousTransform);
+    const ScopedRenderTransform scopedTransform(context.renderTarget, transform);
 
     const D2D1_RECT_F timeBounds = showDivider_
         ? D2D1::RectF(0.0f, 0.0f, 176.0f, 120.0f)
@@ -108,7 +107,6 @@ void ClockWidget::Render(const WidgetRenderContext& context) const {
         context.renderTarget.DrawLine(D2D1::Point2F(182.0f, 23.0f), D2D1::Point2F(182.0f, 97.0f),
             secondaryBrush.Get(), 1.0f);
     }
-    context.renderTarget.SetTransform(previousTransform);
 }
 
 std::span<const WidgetSettingDefinition> ClockWidget::Settings() const noexcept {

@@ -11,6 +11,7 @@
 #include <windows.h>
 
 #include <string>
+#include <cstdint>
 
 namespace ws {
 
@@ -53,6 +54,7 @@ private:
     Microsoft::WRL::ComPtr<ID2D1Bitmap> wallpaperBitmap_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> labelFormat_;
     Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;
+    std::uint64_t resourceGeneration_{};
 };
 
 } // namespace ws

@@ -13,7 +13,7 @@ struct WidgetRenderContext;
 
 using WidgetState = std::map<std::wstring, std::wstring>;
 
-enum class WidgetSettingKind { Boolean, Number, Text, Choice };
+enum class WidgetSettingKind { Boolean, Number, Text, Choice, File };
 
 struct WidgetSettingDefinition {
     std::wstring key;

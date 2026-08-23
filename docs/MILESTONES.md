@@ -57,11 +57,17 @@ Clock, Calendar, Music, and Photo are not implemented in this milestone.
 - grid sizing, alignment, and distribution
 - dark/light/glass settings
 
-## M6 - Calendar + Photo
+## M6 - Calendar + Photo (implemented, build validation pending)
 
 - production Calendar
 - WIC photo import and local asset library
 - cover/contain and focal point
+- localized month/year and weekday labels
+- Monday/Sunday start, weekend dimming, adjacent dates, and today highlight
+- local-midnight Calendar update scheduling
+- WIC bitmap decoding and render-target-generation cache invalidation
+- pure proportional fill/fit and continuous focal-point math
+- application-owned atomic local asset import
 
 ## M7 - Music
 
