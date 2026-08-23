@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <limits>
 #include <utility>
 #include <windowsx.h>
@@ -182,6 +183,7 @@ void DesktopHost::UpdateMetrics() {
         static_cast<float>(rc.right - rc.left) * pixelsToDips,
         static_cast<float>(rc.bottom - rc.top) * pixelsToDips,
     });
+    studio_.UpdateLayoutContext(metrics_, ClientBounds());
 }
 
 void DesktopHost::ToggleEditMode() {
@@ -213,12 +215,25 @@ void DesktopHost::OpenWidgetLibrary() {
     library_.Open(hwnd_, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
 }
 
+void DesktopHost::OpenWidgetStudio() {
+    const std::filesystem::path assetDirectory = sceneStore_.ConfigPath().parent_path() / L"assets";
+    if (!studio_.Open(hwnd_, instance_, scene_, grid_, metrics_, ClientBounds(), assetDirectory, [this] {
+        SaveScene();
+        ScheduleNextWidgetUpdate();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    }, [this] { OpenWidgetLibrary(); })) {
+        MessageBoxW(hwnd_, L"Widget Studio could not open its settings window.",
+            L"Widget Studio", MB_OK | MB_ICONERROR);
+    }
+}
+
 void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
     if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
     SetEditMode(true);
     if (persist) SaveScene();
     ScheduleNextWidgetUpdate();
     InvalidateRect(hwnd_, nullptr, FALSE);
+    studio_.Refresh();
 }
 
 std::wstring DesktopHost::ActiveMonitorId() const {
@@ -235,6 +250,7 @@ void DesktopHost::DeleteSelectedWidgets() {
         SaveScene();
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
+        studio_.Refresh();
     }
 }
 
@@ -244,6 +260,7 @@ void DesktopHost::DuplicatePrimaryWidget() {
         SaveScene();
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
+        studio_.Refresh();
     }
 }
 
@@ -257,6 +274,7 @@ void DesktopHost::TogglePrimaryWidgetLock() {
     if (lock) EndDrag();
     SaveScene();
     InvalidateRect(hwnd_, nullptr, FALSE);
+    studio_.Refresh();
 }
 
 SceneLoadStatus DesktopHost::LoadScene() {
@@ -338,6 +356,7 @@ void DesktopHost::EndDrag() {
             ReleaseCapture();
         }
         if (moved) SaveScene();
+        if (moved) studio_.Refresh();
     }
 }
 
@@ -434,6 +453,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         if (!hit) {
             scene_.ClearSelection();
             InvalidateRect(hwnd_, nullptr, FALSE);
+            studio_.Refresh();
             return 0;
         }
 
@@ -444,6 +464,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             BeginDrag(*hit, point);
         }
         InvalidateRect(hwnd_, nullptr, FALSE);
+        studio_.Refresh();
         return 0;
     }
 
@@ -499,6 +520,9 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case TrayController::kCommandAddWidget:
             OpenWidgetLibrary();
             return 0;
+        case TrayController::kCommandOpenStudio:
+            OpenWidgetStudio();
+            return 0;
         case TrayController::kCommandExit:
             DestroyWindow(hwnd_);
             return 0;
@@ -523,6 +547,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_DESTROY:
         if (mediaSession_) mediaSession_->SetChangedCallback({});
+        studio_.Close();
         KillTimer(hwnd_, kWidgetUpdateTimer);
         UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
         tray_.Shutdown();

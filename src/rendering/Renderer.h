@@ -31,7 +31,9 @@ public:
         const WidgetScene& scene,
         const GridLayout& layout,
         const GridMetrics& metrics,
-        bool editMode);
+        bool editMode,
+        float sceneScale = 1.0f,
+        PointF sceneOffset = {});
 
 private:
     HRESULT CreateDeviceResources();

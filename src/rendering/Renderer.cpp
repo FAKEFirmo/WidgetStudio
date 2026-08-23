@@ -308,13 +308,17 @@ HRESULT Renderer::Render(
     const WidgetScene& scene,
     const GridLayout& layout,
     const GridMetrics& metrics,
-    bool editMode) {
+    bool editMode,
+    float sceneScale,
+    PointF sceneOffset) {
 
     HRESULT hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
 
     renderTarget_->BeginDraw();
     DrawWallpaper();
+    renderTarget_->SetTransform(D2D1::Matrix3x2F(
+        sceneScale, 0.0f, 0.0f, sceneScale, sceneOffset.x, sceneOffset.y));
 
     if (editMode) {
         DrawGrid(layout, metrics);
@@ -323,6 +327,7 @@ HRESULT Renderer::Render(
     for (const auto& widget : scene.Widgets()) {
         DrawWidget(widget, OuterLayout::RectFor(widget, layout, metrics), editMode);
     }
+    renderTarget_->SetTransform(D2D1::Matrix3x2F::Identity());
 
     hr = renderTarget_->EndDraw();
     if (hr == D2DERR_RECREATE_TARGET) {

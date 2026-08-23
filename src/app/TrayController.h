@@ -10,7 +10,8 @@ public:
     static constexpr UINT kTrayCallbackMessage = WM_APP + 10;
     static constexpr UINT kCommandToggleEdit = 40001;
     static constexpr UINT kCommandAddWidget = 40002;
-    static constexpr UINT kCommandExit = 40003;
+    static constexpr UINT kCommandOpenStudio = 40003;
+    static constexpr UINT kCommandExit = 40004;
 
     TrayController() = default;
     ~TrayController();

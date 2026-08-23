@@ -2,6 +2,7 @@
 
 #include "app/TrayController.h"
 #include "app/WidgetLibraryWindow.h"
+#include "app/WidgetStudioWindow.h"
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
 #include "persistence/SceneStore.h"
@@ -52,6 +53,7 @@ private:
     void EndDrag();
     void Paint();
     void OpenWidgetLibrary();
+    void OpenWidgetStudio();
     void CreateWidget(std::string_view typeId, bool persist = true);
     void DeleteSelectedWidgets();
     void DuplicatePrimaryWidget();
@@ -81,6 +83,7 @@ private:
     bool persistenceErrorShown_{false};
     TrayController tray_{};
     WidgetLibraryWindow library_{};
+    WidgetStudioWindow studio_{};
     std::optional<DragState> drag_{};
 };
 

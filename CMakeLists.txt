@@ -12,6 +12,7 @@ add_executable(WidgetStudio WIN32
     src/app/Application.cpp
     src/app/TrayController.cpp
     src/app/WidgetLibraryWindow.cpp
+    src/app/WidgetStudioWindow.cpp
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
     src/layout/AuthoredContentLayout.cpp
