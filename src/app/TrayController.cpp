@@ -27,6 +27,14 @@ bool TrayController::Initialize(HWND owner) {
     return initialized_;
 }
 
+void TrayController::RestoreAfterExplorerRestart() {
+    if (!initialized_) return;
+    if (Shell_NotifyIconW(NIM_ADD, &data_) == TRUE) {
+        data_.uVersion = NOTIFYICON_VERSION_4;
+        Shell_NotifyIconW(NIM_SETVERSION, &data_);
+    }
+}
+
 void TrayController::Shutdown() noexcept {
     if (initialized_) {
         Shell_NotifyIconW(NIM_DELETE, &data_);

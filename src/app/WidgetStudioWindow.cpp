@@ -64,7 +64,7 @@ WidgetStudioWindow::~WidgetStudioWindow() { Close(); }
 
 bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene, GridLayout& grid,
     GridMetrics layoutMetrics, RectF layoutBounds, std::filesystem::path assetDirectory,
-    std::function<void()> sceneChanged, std::function<void()> openLibrary) {
+    std::wstring monitorId, std::function<void()> sceneChanged, std::function<void()> openLibrary) {
     if (hwnd_) { ShowWindow(hwnd_, SW_SHOWNORMAL); SetForegroundWindow(hwnd_); Refresh(); return true; }
     instance_ = instance;
     owner_ = owner;
@@ -72,6 +72,7 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     grid_ = &grid;
     layoutMetrics_ = layoutMetrics;
     layoutBounds_ = layoutBounds;
+    monitorId_ = std::move(monitorId);
     assetLibrary_ = std::make_unique<AssetLibrary>(std::move(assetDirectory));
     sceneChanged_ = std::move(sceneChanged);
     openLibrary_ = std::move(openLibrary);
@@ -121,9 +122,11 @@ void WidgetStudioWindow::Refresh() {
     InvalidateRect(preview_, nullptr, FALSE);
 }
 
-void WidgetStudioWindow::UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds) {
+void WidgetStudioWindow::UpdateLayoutContext(
+    GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId) {
     layoutMetrics_ = layoutMetrics;
     layoutBounds_ = layoutBounds;
+    monitorId_ = std::move(monitorId);
     UpdatePreviewMetrics();
     if (preview_) InvalidateRect(preview_, nullptr, FALSE);
 }
@@ -266,7 +269,7 @@ void WidgetStudioWindow::PaintPreview() {
     BeginPaint(preview_, &paint);
     if (previewRenderer_ && scene_ && grid_) {
         const HRESULT result = previewRenderer_->Render(
-            *scene_, *grid_, previewMetrics_, true, previewScale_, previewOffset_);
+            *scene_, *grid_, previewMetrics_, true, previewScale_, previewOffset_, monitorId_);
         if (result == D2DERR_RECREATE_TARGET) InvalidateRect(preview_, nullptr, FALSE);
     }
     EndPaint(preview_, &paint);
@@ -511,7 +514,7 @@ LRESULT WidgetStudioWindow::HandlePreviewMessage(UINT message, WPARAM wParam, LP
             (static_cast<float>(GET_X_LPARAM(lParam)) * scale - previewOffset_.x) / previewScale_,
             (static_cast<float>(GET_Y_LPARAM(lParam)) * scale - previewOffset_.y) / previewScale_,
         };
-        const auto hit = scene_->HitTest(point, *grid_, previewMetrics_);
+        const auto hit = scene_->HitTest(point, *grid_, previewMetrics_, monitorId_);
         if (hit) scene_->Select(*hit, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
         else scene_->ClearSelection();
         UpdateControlsFromSelection();

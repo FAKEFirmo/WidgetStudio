@@ -17,6 +17,7 @@ public:
     ~TrayController();
 
     bool Initialize(HWND owner);
+    void RestoreAfterExplorerRestart();
     void Shutdown() noexcept;
     void ShowContextMenu(bool editMode);
 

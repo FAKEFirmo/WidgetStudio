@@ -310,7 +310,8 @@ HRESULT Renderer::Render(
     const GridMetrics& metrics,
     bool editMode,
     float sceneScale,
-    PointF sceneOffset) {
+    PointF sceneOffset,
+    std::wstring_view monitorId) {
 
     HRESULT hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
@@ -325,6 +326,7 @@ HRESULT Renderer::Render(
     }
 
     for (const auto& widget : scene.Widgets()) {
+        if (!monitorId.empty() && widget.monitorId != monitorId) continue;
         DrawWidget(widget, OuterLayout::RectFor(widget, layout, metrics), editMode);
     }
     renderTarget_->SetTransform(D2D1::Matrix3x2F::Identity());

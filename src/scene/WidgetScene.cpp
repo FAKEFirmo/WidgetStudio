@@ -46,8 +46,10 @@ const WidgetInstance* WidgetScene::Find(std::string_view instanceId) const noexc
 }
 
 std::optional<std::string> WidgetScene::HitTest(
-    PointF point, const GridLayout& layout, const GridMetrics& metrics) const noexcept {
+    PointF point, const GridLayout& layout, const GridMetrics& metrics,
+    std::wstring_view monitorId) const noexcept {
     for (auto it = widgets_.rbegin(); it != widgets_.rend(); ++it) {
+        if (!monitorId.empty() && it->monitorId != monitorId) continue;
         if (OuterLayout::RectFor(*it, layout, metrics).Contains(point)) return it->instanceId;
     }
     return std::nullopt;

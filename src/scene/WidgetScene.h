@@ -30,7 +30,8 @@ public:
     [[nodiscard]] std::optional<std::string> HitTest(
         PointF point,
         const GridLayout& layout,
-        const GridMetrics& metrics) const noexcept;
+        const GridMetrics& metrics,
+        std::wstring_view monitorId = {}) const noexcept;
 
     void Select(std::string_view instanceId, bool additive) noexcept;
     void ClearSelection() noexcept;

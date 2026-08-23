@@ -13,6 +13,7 @@ add_executable(WidgetStudio WIN32
     src/app/TrayController.cpp
     src/app/WidgetLibraryWindow.cpp
     src/app/WidgetStudioWindow.cpp
+    src/desktop/DesktopBackendController.cpp
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
     src/layout/AuthoredContentLayout.cpp
@@ -33,6 +34,7 @@ add_executable(WidgetStudio WIN32
     src/widgets/calendar/CalendarModel.cpp
     src/widgets/photo/PhotoLayout.cpp
     src/windows/MediaSessionService.cpp
+    src/windows/MonitorTopology.cpp
 )
 
 target_include_directories(WidgetStudio PRIVATE src)
@@ -55,6 +57,7 @@ target_link_libraries(WidgetStudio PRIVATE
     dwrite
     windowscodecs
     shell32
+    shcore
     ole32
     user32
     gdi32

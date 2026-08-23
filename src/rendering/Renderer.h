@@ -11,6 +11,7 @@
 #include <windows.h>
 
 #include <string>
+#include <string_view>
 #include <cstdint>
 
 namespace ws {
@@ -33,7 +34,8 @@ public:
         const GridMetrics& metrics,
         bool editMode,
         float sceneScale = 1.0f,
-        PointF sceneOffset = {});
+        PointF sceneOffset = {},
+        std::wstring_view monitorId = {});
 
 private:
     HRESULT CreateDeviceResources();

@@ -8,6 +8,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <string>
 #include <windows.h>
 
 namespace ws {
@@ -19,10 +20,10 @@ public:
 
     bool Open(HWND owner, HINSTANCE instance, WidgetScene& scene, GridLayout& grid,
         GridMetrics layoutMetrics, RectF layoutBounds, std::filesystem::path assetDirectory,
-        std::function<void()> sceneChanged, std::function<void()> openLibrary);
+        std::wstring monitorId, std::function<void()> sceneChanged, std::function<void()> openLibrary);
     void Close() noexcept;
     void Refresh();
-    void UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds);
+    void UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId);
 
 private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam);
@@ -73,6 +74,7 @@ private:
     float previewScale_{1.0f};
     PointF previewOffset_{};
     RectF layoutBounds_{};
+    std::wstring monitorId_;
     std::unique_ptr<Renderer> previewRenderer_;
     std::unique_ptr<AssetLibrary> assetLibrary_;
     std::function<void()> sceneChanged_;

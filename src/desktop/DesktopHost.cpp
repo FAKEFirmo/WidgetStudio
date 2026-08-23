@@ -71,6 +71,7 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     if (!hwnd_) {
         return false;
     }
+    taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
     if (mediaSession_) {
         const HWND notificationWindow = hwnd_;
         mediaSession_->SetChangedCallback([notificationWindow] {
@@ -93,11 +94,19 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         return false;
     }
 
+    if (!desktopBackend_.AttachConfigured(hwnd_)) {
+        DestroyWindow(hwnd_);
+        hwnd_ = nullptr;
+        return false;
+    }
+    monitorTopology_.Refresh();
     UpdateMetrics();
     const SceneLoadStatus loadStatus = LoadScene();
     if (loadStatus != SceneLoadStatus::Loaded) {
         CreateWidget("clock", loadStatus == SceneLoadStatus::Missing);
     }
+    if (monitorTopology_.MigrateMissingWidgets(
+            scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
     ScheduleNextWidgetUpdate();
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
@@ -160,7 +169,7 @@ RectF DesktopHost::ClientBounds() const noexcept {
 }
 
 std::optional<DesktopHost::WidgetActionHit> DesktopHost::HitTestWidgetAction(PointF point) const {
-    const auto instanceId = scene_.HitTest(point, grid_, metrics_);
+    const auto instanceId = scene_.HitTest(point, grid_, metrics_, ActiveMonitorId());
     if (!instanceId) return std::nullopt;
     const WidgetInstance* widget = scene_.Find(*instanceId);
     if (!widget || !widget->content) return std::nullopt;
@@ -183,7 +192,7 @@ void DesktopHost::UpdateMetrics() {
         static_cast<float>(rc.right - rc.left) * pixelsToDips,
         static_cast<float>(rc.bottom - rc.top) * pixelsToDips,
     });
-    studio_.UpdateLayoutContext(metrics_, ClientBounds());
+    studio_.UpdateLayoutContext(metrics_, ClientBounds(), ActiveMonitorId());
 }
 
 void DesktopHost::ToggleEditMode() {
@@ -217,7 +226,8 @@ void DesktopHost::OpenWidgetLibrary() {
 
 void DesktopHost::OpenWidgetStudio() {
     const std::filesystem::path assetDirectory = sceneStore_.ConfigPath().parent_path() / L"assets";
-    if (!studio_.Open(hwnd_, instance_, scene_, grid_, metrics_, ClientBounds(), assetDirectory, [this] {
+    if (!studio_.Open(hwnd_, instance_, scene_, grid_, metrics_, ClientBounds(), assetDirectory,
+            ActiveMonitorId(), [this] {
         SaveScene();
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -363,7 +373,8 @@ void DesktopHost::EndDrag() {
 void DesktopHost::Paint() {
     PAINTSTRUCT ps{};
     BeginPaint(hwnd_, &ps);
-    const HRESULT renderResult = renderer_.Render(scene_, grid_, metrics_, editMode_);
+    const HRESULT renderResult = renderer_.Render(
+        scene_, grid_, metrics_, editMode_, 1.0f, {}, ActiveMonitorId());
     EndPaint(hwnd_, &ps);
     if (renderResult == D2DERR_RECREATE_TARGET) {
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -371,6 +382,13 @@ void DesktopHost::Paint() {
 }
 
 LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
+    if (taskbarCreatedMessage_ != 0 && message == taskbarCreatedMessage_) {
+        tray_.RestoreAfterExplorerRestart();
+        desktopBackend_.Reattach(hwnd_);
+        UpdateMetrics();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return 0;
+    }
     switch (message) {
     case WM_NCHITTEST: {
         const LRESULT defaultResult = DefWindowProcW(hwnd_, message, wParam, lParam);
@@ -412,6 +430,16 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         InvalidateRect(hwnd_, nullptr, FALSE);
         return 0;
 
+    case WM_DISPLAYCHANGE:
+        if (monitorTopology_.Refresh()) {
+            if (monitorTopology_.MigrateMissingWidgets(
+                    scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
+            UpdateMetrics();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            studio_.Refresh();
+        }
+        return 0;
+
     case WM_TIMECHANGE:
         ScheduleNextWidgetUpdate();
         InvalidateRect(hwnd_, nullptr, FALSE);
@@ -449,7 +477,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             return 0;
         }
         if (!editMode_) return 0;
-        const auto hit = scene_.HitTest(point, grid_, metrics_);
+        const auto hit = scene_.HitTest(point, grid_, metrics_, ActiveMonitorId());
         if (!hit) {
             scene_.ClearSelection();
             InvalidateRect(hwnd_, nullptr, FALSE);
@@ -548,6 +576,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_DESTROY:
         if (mediaSession_) mediaSession_->SetChangedCallback({});
         studio_.Close();
+        desktopBackend_.Detach(hwnd_);
         KillTimer(hwnd_, kWidgetUpdateTimer);
         UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
         tray_.Shutdown();

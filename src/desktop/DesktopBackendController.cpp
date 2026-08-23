@@ -1,0 +1,121 @@
+#include "desktop/DesktopBackendController.h"
+
+#include <array>
+#include <cwchar>
+#include <utility>
+
+namespace ws {
+namespace {
+
+class WindowedDesktopBackend final : public IDesktopBackend {
+public:
+    std::wstring_view Name() const noexcept override { return L"Windowed"; }
+    bool Attach(HWND) override { return true; }
+    void Detach(HWND) noexcept override {}
+};
+
+class WorkerWDesktopBackend final : public IDesktopBackend {
+public:
+    std::wstring_view Name() const noexcept override { return L"WorkerW (experimental)"; }
+
+    bool Attach(HWND host) override {
+        if (!host || !IsWindow(host)) return false;
+        HWND worker = FindWorkerWindow();
+        if (!worker) return false;
+
+        if (!attached_) {
+            originalParent_ = GetParent(host);
+            originalStyle_ = GetWindowLongPtrW(host, GWL_STYLE);
+            originalExtendedStyle_ = GetWindowLongPtrW(host, GWL_EXSTYLE);
+            GetWindowRect(host, &originalBounds_);
+        }
+        SetLastError(ERROR_SUCCESS);
+        if (!SetParent(host, worker) && GetLastError() != ERROR_SUCCESS) return false;
+        SetWindowLongPtrW(host, GWL_STYLE, (originalStyle_ & ~WS_OVERLAPPEDWINDOW) | WS_CHILD | WS_VISIBLE);
+        SetWindowLongPtrW(host, GWL_EXSTYLE, originalExtendedStyle_ | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        RECT bounds{};
+        if (!GetClientRect(worker, &bounds)) return false;
+        SetWindowPos(host, HWND_BOTTOM, 0, 0, bounds.right, bounds.bottom,
+            SWP_FRAMECHANGED | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        attached_ = true;
+        return true;
+    }
+
+    void Detach(HWND host) noexcept override {
+        if (!attached_ || !host || !IsWindow(host)) return;
+        SetParent(host, originalParent_);
+        SetWindowLongPtrW(host, GWL_STYLE, originalStyle_);
+        SetWindowLongPtrW(host, GWL_EXSTYLE, originalExtendedStyle_);
+        SetWindowPos(host, nullptr, originalBounds_.left, originalBounds_.top,
+            originalBounds_.right - originalBounds_.left,
+            originalBounds_.bottom - originalBounds_.top,
+            SWP_FRAMECHANGED | SWP_NOZORDER | SWP_NOACTIVATE);
+        attached_ = false;
+    }
+
+private:
+    static HWND FindWorkerWindow() {
+        HWND programManager = FindWindowW(L"Progman", nullptr);
+        if (programManager) {
+            DWORD_PTR ignored{};
+            SendMessageTimeoutW(programManager, 0x052C, 0, 0,
+                SMTO_ABORTIFHUNG | SMTO_NORMAL, 1000, &ignored);
+        }
+        struct Search { HWND worker{}; } search;
+        EnumWindows([](HWND top, LPARAM context) -> BOOL {
+            auto& result = *reinterpret_cast<Search*>(context);
+            if (!FindWindowExW(top, nullptr, L"SHELLDLL_DefView", nullptr)) return TRUE;
+            result.worker = FindWindowExW(nullptr, top, L"WorkerW", nullptr);
+            return result.worker ? FALSE : TRUE;
+        }, reinterpret_cast<LPARAM>(&search));
+        return search.worker;
+    }
+
+    HWND originalParent_{};
+    LONG_PTR originalStyle_{};
+    LONG_PTR originalExtendedStyle_{};
+    RECT originalBounds_{};
+    bool attached_{false};
+};
+
+bool WorkerWRequested() {
+    std::array<wchar_t, 32> value{};
+    const DWORD length = GetEnvironmentVariableW(
+        L"WIDGETSTUDIO_DESKTOP_BACKEND", value.data(), static_cast<DWORD>(value.size()));
+    return length > 0 && length < static_cast<DWORD>(value.size()) &&
+        _wcsicmp(value.data(), L"workerw") == 0;
+}
+
+} // namespace
+
+bool DesktopBackendController::AttachConfigured(HWND host) {
+    experimental_ = false;
+    if (WorkerWRequested()) {
+        auto worker = std::make_unique<WorkerWDesktopBackend>();
+        if (worker->Attach(host)) {
+            backend_ = std::move(worker);
+            experimental_ = true;
+            return true;
+        }
+    }
+    backend_ = std::make_unique<WindowedDesktopBackend>();
+    return backend_->Attach(host);
+}
+
+void DesktopBackendController::Reattach(HWND host) {
+    if (!experimental_) return;
+    backend_->Detach(host);
+    if (!backend_->Attach(host)) AttachConfigured(host);
+}
+
+void DesktopBackendController::Detach(HWND host) noexcept {
+    if (backend_) backend_->Detach(host);
+    backend_.reset();
+    experimental_ = false;
+}
+
+std::wstring_view DesktopBackendController::ActiveName() const noexcept {
+    return backend_ ? backend_->Name() : L"None";
+}
+
+} // namespace ws

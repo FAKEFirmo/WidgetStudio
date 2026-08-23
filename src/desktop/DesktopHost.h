@@ -4,11 +4,13 @@
 #include "app/WidgetLibraryWindow.h"
 #include "app/WidgetStudioWindow.h"
 #include "common/Geometry.h"
+#include "desktop/DesktopBackendController.h"
 #include "layout/GridLayout.h"
 #include "persistence/SceneStore.h"
 #include "rendering/Renderer.h"
 #include "scene/WidgetScene.h"
 #include "widgets/WidgetRegistry.h"
+#include "windows/MonitorTopology.h"
 
 #include <cstdint>
 #include <memory>
@@ -70,6 +72,7 @@ private:
     HINSTANCE instance_{};
     HWND hwnd_{};
     UINT dpi_{96};
+    UINT taskbarCreatedMessage_{};
     bool editMode_{true};
 
     Renderer renderer_{};
@@ -82,6 +85,8 @@ private:
     WidgetSceneSnapshot unrestoredRecords_;
     bool persistenceErrorShown_{false};
     TrayController tray_{};
+    DesktopBackendController desktopBackend_{};
+    MonitorTopology monitorTopology_{};
     WidgetLibraryWindow library_{};
     WidgetStudioWindow studio_{};
     std::optional<DragState> drag_{};

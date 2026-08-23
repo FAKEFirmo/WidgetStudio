@@ -85,6 +85,21 @@ void TestRegistryAndPlacement() {
     Require(scene.SetWidgetLocked(duplicate->instanceId, true) && duplicate->locked,
         "generic lock operation should work");
     Require(scene.RemoveWidget(duplicate->instanceId), "generic removal should work");
+
+    ws::WidgetInstance* otherMonitor = scene.CreateWidget("test", L"DISPLAY-B");
+    Require(otherMonitor != nullptr, "widget creation on a second monitor should succeed");
+    ws::GridLayout grid;
+    const ws::GridMetrics metrics = grid.Calculate({1200.0f, 700.0f});
+    const ws::PointF sharedPoint{
+        grid.RectFor(scene.Widgets().front().grid, metrics).x + 1.0f,
+        grid.RectFor(scene.Widgets().front().grid, metrics).y + 1.0f,
+    };
+    const auto firstMonitorHit = scene.HitTest(sharedPoint, grid, metrics, L"DISPLAY-A");
+    const auto secondMonitorHit = scene.HitTest(sharedPoint, grid, metrics, L"DISPLAY-B");
+    Require(firstMonitorHit == scene.Widgets().front().instanceId,
+        "hit testing should isolate the first monitor scene");
+    Require(secondMonitorHit == otherMonitor->instanceId,
+        "hit testing should isolate the second monitor scene");
 }
 
 ws::WidgetPersistenceRecord ExampleRecord() {
