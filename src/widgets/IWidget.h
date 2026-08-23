@@ -1,15 +1,24 @@
 #pragma once
 
+#include "common/Geometry.h"
+
 #include <chrono>
 #include <map>
 #include <optional>
 #include <span>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace ws {
 
 struct WidgetRenderContext;
+
+struct WidgetHitTestContext {
+    PointF point{};
+    RectF bounds{};
+    float contentScale{1.0f};
+};
 
 using WidgetState = std::map<std::wstring, std::wstring>;
 
@@ -35,6 +44,9 @@ public:
     [[nodiscard]] virtual std::optional<std::chrono::system_clock::time_point> NextUpdateTime() const noexcept {
         return std::nullopt;
     }
+    [[nodiscard]] virtual std::optional<std::string> HitTestAction(
+        const WidgetHitTestContext&) const { return std::nullopt; }
+    virtual bool InvokeAction(std::string_view) { return false; }
 };
 
 } // namespace ws

@@ -1,4 +1,5 @@
 #include "rendering/Renderer.h"
+#include "layout/OuterLayout.h"
 #include "rendering/WidgetRenderContext.h"
 #include "rendering/WidgetVisualStyle.h"
 
@@ -319,7 +320,7 @@ HRESULT Renderer::Render(
     }
 
     for (const auto& widget : scene.Widgets()) {
-        DrawWidget(widget, layout.RectFor(widget.grid, metrics), editMode);
+        DrawWidget(widget, OuterLayout::RectFor(widget, layout, metrics), editMode);
     }
 
     hr = renderTarget_->EndDraw();

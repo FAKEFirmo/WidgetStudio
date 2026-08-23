@@ -57,6 +57,8 @@ Clock, Calendar, Music, and Photo are not implemented in this milestone.
 - grid sizing, alignment, and distribution
 - dark/light/glass settings
 
+The underlying free-mode rectangle, drag, conversion, primary-relative alignment/matching, and distribution logic is implemented ahead of this UI milestone because interactive Music controls depend on the same generic interaction separation.
+
 ## M6 - Calendar + Photo (implemented, build validation pending)
 
 - production Calendar

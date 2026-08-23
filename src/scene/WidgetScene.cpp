@@ -1,10 +1,12 @@
 #include "scene/WidgetScene.h"
 
+#include "layout/OuterLayout.h"
 #include "widgets/WidgetRegistry.h"
 
 #include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <sstream>
 
 namespace ws {
@@ -46,7 +48,7 @@ const WidgetInstance* WidgetScene::Find(std::string_view instanceId) const noexc
 std::optional<std::string> WidgetScene::HitTest(
     PointF point, const GridLayout& layout, const GridMetrics& metrics) const noexcept {
     for (auto it = widgets_.rbegin(); it != widgets_.rend(); ++it) {
-        if (layout.RectFor(it->grid, metrics).Contains(point)) return it->instanceId;
+        if (OuterLayout::RectFor(*it, layout, metrics).Contains(point)) return it->instanceId;
     }
     return std::nullopt;
 }
@@ -162,6 +164,35 @@ bool WidgetScene::SetWidgetLocked(std::string_view instanceId, bool locked) noex
     if (!widget) return false;
     widget->locked = locked;
     return true;
+}
+
+bool WidgetScene::SetWidgetLayoutMode(
+    std::string_view instanceId, LayoutMode mode, const GridLayout& grid, const GridMetrics& metrics) noexcept {
+    WidgetInstance* widget = Find(instanceId);
+    if (!widget || widget->layoutMode == mode) return widget != nullptr;
+    const RectF current = OuterLayout::RectFor(*widget, grid, metrics);
+    if (mode == LayoutMode::Free) {
+        widget->free = FreePlacement{current.x, current.y, current.width, current.height};
+    } else {
+        const float stride = std::max(1.0f, metrics.cellSize + metrics.gap);
+        widget->grid.columnSpan = std::clamp(
+            static_cast<int>(std::lround((current.width + metrics.gap) / stride)), 1, gridColumns_);
+        widget->grid.rowSpan = std::clamp(
+            static_cast<int>(std::lround((current.height + metrics.gap) / stride)), 1, gridRows_);
+        widget->grid = grid.MoveToPoint(widget->grid, PointF{current.x, current.y}, PointF{}, metrics);
+    }
+    widget->layoutMode = mode;
+    return true;
+}
+
+bool WidgetScene::AlignSelected(AlignmentOperation operation, RectF bounds) noexcept {
+    std::vector<AlignmentItem> items;
+    for (auto& widget : widgets_) {
+        if (widget.selected && widget.layoutMode == LayoutMode::Free) {
+            items.push_back(AlignmentItem{&widget.free, widget.primarySelection, widget.locked});
+        }
+    }
+    return Alignment::Apply(items, operation, bounds);
 }
 
 WidgetSceneSnapshot WidgetScene::Snapshot() const {

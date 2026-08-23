@@ -26,6 +26,11 @@ public:
     int RunMessageLoop();
 
 private:
+    struct WidgetActionHit {
+        std::string instanceId;
+        std::string actionId;
+    };
+
     struct DragState {
         std::string widgetId;
         PointF offset{};
@@ -54,6 +59,8 @@ private:
     [[nodiscard]] std::wstring ActiveMonitorId() const;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
+    [[nodiscard]] RectF ClientBounds() const noexcept;
+    [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(PointF point) const;
 
     HINSTANCE instance_{};
     HWND hwnd_{};

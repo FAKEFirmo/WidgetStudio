@@ -60,9 +60,13 @@ Dragging
 WidgetAction (future, e.g. music buttons)
 ```
 
-In Editing mode, click establishes the primary selection, Shift-click toggles multi-selection, and unlocked instances drag with grid snapping. `Delete` removes selected instances, `Ctrl+D` duplicates the primary instance, and `Ctrl+L` toggles its lock. Locked widgets remain selectable.
+In Editing mode, click establishes the primary selection, Shift-click toggles multi-selection, and unlocked instances drag through the active outer-layout mode. Grid instances snap to cells; free instances move in DIPs and clamp within the client/monitor bounds. `Delete` removes selected instances, `Ctrl+D` duplicates the primary instance, and `Ctrl+L` toggles its lock. Locked widgets remain selectable.
 
-In the future desktop backend, passive widget regions will return `HTTRANSPARENT`; explicit content-control regions will remain interactive and separate from drag initiation.
+`IWidget::HitTestAction` and `InvokeAction` form the generic content-control boundary. The host asks the topmost widget for an explicit action before considering drag initiation, so a future Music transport button can never start a drag. In passive mode, `WM_NCHITTEST` returns `HTTRANSPARENT` except over one of these explicit actions.
+
+## Free layout and alignment
+
+`OuterLayout` resolves grid or free instance rectangles and moves free instances without mixing physical pixels and DIPs. `Alignment` implements primary-relative left/center/right/top/middle/bottom alignment, width/height/both matching, and equal horizontal/vertical distribution. Locked items are not modified. Scene APIs expose mode conversion and selected-item alignment without widget-type knowledge.
 
 ## Persistence boundary
 

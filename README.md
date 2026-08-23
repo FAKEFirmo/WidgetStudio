@@ -58,6 +58,8 @@ The current foundation and widget framework include:
 - versioned local scene persistence with atomic replacement and backup
 - click selection and Shift-click multi-selection
 - grid-snapped dragging
+- free-layout DIP dragging and generic alignment/distribution scene operations
+- passive hit testing that remains interactive only over explicit widget actions
 - widget lock state
 - edit/passive mode
 - tray icon and edit-mode hotkey

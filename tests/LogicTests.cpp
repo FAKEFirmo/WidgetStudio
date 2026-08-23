@@ -2,6 +2,8 @@
 #include "persistence/SceneStore.h"
 #include "persistence/AssetLibrary.h"
 #include "layout/AuthoredContentLayout.h"
+#include "layout/Alignment.h"
+#include "layout/OuterLayout.h"
 #include "scene/WidgetScene.h"
 #include "widgets/ClockWidget.h"
 #include "widgets/WidgetRegistry.h"
@@ -261,6 +263,38 @@ void TestPhotoLayoutAndAssetImport() {
     Require(bytes == "local-image-bytes", "asset import should preserve file contents");
 }
 
+void TestFreeLayoutAndAlignment() {
+    ws::FreePlacement reference{10.0f, 20.0f, 100.0f, 50.0f};
+    ws::FreePlacement target{0.0f, 80.0f, 40.0f, 20.0f};
+    std::array items{
+        ws::AlignmentItem{&reference, true, false},
+        ws::AlignmentItem{&target, false, false},
+    };
+    Require(ws::Alignment::Apply(items, ws::AlignmentOperation::Right, {0.0f, 0.0f, 500.0f, 500.0f}) &&
+        std::abs(target.x - 70.0f) < 0.0001f,
+        "right alignment should use the primary selection as reference");
+    Require(ws::Alignment::Apply(items, ws::AlignmentOperation::MatchBoth, {0.0f, 0.0f, 500.0f, 500.0f}) &&
+        target.width == reference.width && target.height == reference.height,
+        "match-both should copy primary dimensions");
+
+    ws::FreePlacement first{0.0f, 0.0f, 10.0f, 10.0f};
+    ws::FreePlacement middle{40.0f, 0.0f, 10.0f, 10.0f};
+    ws::FreePlacement last{100.0f, 0.0f, 10.0f, 10.0f};
+    std::array distributed{
+        ws::AlignmentItem{&first, true, false}, ws::AlignmentItem{&middle, false, false},
+        ws::AlignmentItem{&last, false, false},
+    };
+    Require(ws::Alignment::Apply(distributed, ws::AlignmentOperation::DistributeHorizontally,
+            {0.0f, 0.0f, 200.0f, 100.0f}) && std::abs(middle.x - 50.0f) < 0.0001f,
+        "horizontal distribution should create equal edge-to-edge gaps");
+
+    const ws::FreePlacement moved = ws::OuterLayout::MoveFreeToPoint(
+        {20.0f, 20.0f, 80.0f, 60.0f}, {500.0f, 500.0f}, {10.0f, 10.0f},
+        {0.0f, 0.0f, 300.0f, 200.0f});
+    Require(moved.x == 220.0f && moved.y == 140.0f,
+        "free dragging should clamp the full widget within available bounds");
+}
+
 } // namespace
 
 int main() {
@@ -272,6 +306,7 @@ int main() {
         TestClockStateAndScheduling();
         TestCalendarModel();
         TestPhotoLayoutAndAssetImport();
+        TestFreeLayoutAndAlignment();
         std::cout << "WidgetStudio logic tests passed.\n";
         return 0;
     } catch (const std::exception& error) {

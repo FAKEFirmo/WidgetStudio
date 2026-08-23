@@ -2,6 +2,7 @@
 
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
+#include "layout/Alignment.h"
 #include "scene/WidgetInstance.h"
 #include "persistence/WidgetPersistence.h"
 #include "widgets/WidgetDescriptor.h"
@@ -42,6 +43,9 @@ public:
     std::size_t RemoveSelectedWidgets() noexcept;
     WidgetInstance* DuplicateWidget(std::string_view instanceId);
     bool SetWidgetLocked(std::string_view instanceId, bool locked) noexcept;
+    bool SetWidgetLayoutMode(std::string_view instanceId, LayoutMode mode,
+        const GridLayout& grid, const GridMetrics& metrics) noexcept;
+    bool AlignSelected(AlignmentOperation operation, RectF bounds) noexcept;
     [[nodiscard]] WidgetSceneSnapshot Snapshot() const;
     WidgetInstance* RestoreWidget(const WidgetPersistenceRecord& record, bool select = false);
 

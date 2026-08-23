@@ -15,6 +15,8 @@ add_executable(WidgetStudio WIN32
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
     src/layout/AuthoredContentLayout.cpp
+    src/layout/Alignment.cpp
+    src/layout/OuterLayout.cpp
     src/persistence/SceneJsonCodec.cpp
     src/persistence/SceneStore.cpp
     src/persistence/AssetLibrary.cpp
@@ -60,6 +62,8 @@ if(BUILD_TESTING)
         tests/LogicTests.cpp
         src/layout/GridLayout.cpp
         src/layout/AuthoredContentLayout.cpp
+        src/layout/Alignment.cpp
+        src/layout/OuterLayout.cpp
         src/persistence/AssetLibrary.cpp
         src/persistence/SceneJsonCodec.cpp
         src/persistence/SceneStore.cpp

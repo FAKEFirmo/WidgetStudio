@@ -1,5 +1,8 @@
 #include "desktop/DesktopHost.h"
 
+#include "layout/OuterLayout.h"
+#include "rendering/WidgetVisualStyle.h"
+
 #include <algorithm>
 #include <chrono>
 #include <limits>
@@ -135,6 +138,30 @@ PointF DesktopHost::ClientPointFromLParam(LPARAM lParam) const noexcept {
     };
 }
 
+RectF DesktopHost::ClientBounds() const noexcept {
+    RECT rect{};
+    if (!hwnd_ || !GetClientRect(hwnd_, &rect)) return {};
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi_));
+    return RectF{0.0f, 0.0f,
+        static_cast<float>(rect.right - rect.left) * pixelsToDips,
+        static_cast<float>(rect.bottom - rect.top) * pixelsToDips};
+}
+
+std::optional<DesktopHost::WidgetActionHit> DesktopHost::HitTestWidgetAction(PointF point) const {
+    const auto instanceId = scene_.HitTest(point, grid_, metrics_);
+    if (!instanceId) return std::nullopt;
+    const WidgetInstance* widget = scene_.Find(*instanceId);
+    if (!widget || !widget->content) return std::nullopt;
+    const RectF outer = OuterLayout::RectFor(*widget, grid_, metrics_);
+    const auto action = widget->content->HitTestAction(WidgetHitTestContext{
+        .point = point,
+        .bounds = WidgetVisualStyle::ContentBounds(outer),
+        .contentScale = widget->contentScale,
+    });
+    if (!action) return std::nullopt;
+    return WidgetActionHit{*instanceId, *action};
+}
+
 void DesktopHost::UpdateMetrics() {
     if (!hwnd_) return;
     RECT rc{};
@@ -162,7 +189,7 @@ void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer) {
     WidgetInstance* widget = scene_.Find(widgetId);
     if (!widget || widget->locked) return;
 
-    const RectF rect = grid_.RectFor(widget->grid, metrics_);
+    const RectF rect = OuterLayout::RectFor(*widget, grid_, metrics_);
     drag_ = DragState{
         .widgetId = std::string(widgetId),
         .offset = PointF{pointer.x - rect.x, pointer.y - rect.y},
@@ -275,10 +302,19 @@ void DesktopHost::UpdateDrag(PointF pointer) {
     WidgetInstance* widget = scene_.Find(drag_->widgetId);
     if (!widget || widget->locked) return;
 
-    const GridPlacement moved = grid_.MoveToPoint(widget->grid, pointer, drag_->offset, metrics_);
-    if (moved.column != widget->grid.column || moved.row != widget->grid.row) {
-        widget->grid = moved;
-        drag_->moved = true;
+    if (widget->layoutMode == LayoutMode::Grid) {
+        const GridPlacement moved = grid_.MoveToPoint(widget->grid, pointer, drag_->offset, metrics_);
+        if (moved.column != widget->grid.column || moved.row != widget->grid.row) {
+            widget->grid = moved;
+            drag_->moved = true;
+        }
+    } else {
+        const FreePlacement moved = OuterLayout::MoveFreeToPoint(
+            widget->free, pointer, drag_->offset, ClientBounds());
+        if (moved.x != widget->free.x || moved.y != widget->free.y) {
+            widget->free = moved;
+            drag_->moved = true;
+        }
     }
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
@@ -306,6 +342,17 @@ void DesktopHost::Paint() {
 
 LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     switch (message) {
+    case WM_NCHITTEST: {
+        const LRESULT defaultResult = DefWindowProcW(hwnd_, message, wParam, lParam);
+        if (defaultResult != HTCLIENT || editMode_) return defaultResult;
+        POINT point{GET_X_LPARAM(lParam), GET_Y_LPARAM(lParam)};
+        if (!ScreenToClient(hwnd_, &point)) return HTTRANSPARENT;
+        const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpi_));
+        const PointF clientPoint{static_cast<float>(point.x) * pixelsToDips,
+            static_cast<float>(point.y) * pixelsToDips};
+        return HitTestWidgetAction(clientPoint) ? HTCLIENT : HTTRANSPARENT;
+    }
+
     case WM_SIZE:
         UpdateMetrics();
         renderer_.Resize(LOWORD(lParam), HIWORD(lParam));
@@ -356,8 +403,17 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         return 1;
 
     case WM_LBUTTONDOWN: {
-        if (!editMode_) return 0;
         const PointF point = ClientPointFromLParam(lParam);
+        if (const auto action = HitTestWidgetAction(point)) {
+            WidgetInstance* widget = scene_.Find(action->instanceId);
+            if (widget && widget->content) {
+                static_cast<void>(widget->content->InvokeAction(action->actionId));
+            }
+            ScheduleNextWidgetUpdate();
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        }
+        if (!editMode_) return 0;
         const auto hit = scene_.HitTest(point, grid_, metrics_);
         if (!hit) {
             scene_.ClearSelection();
