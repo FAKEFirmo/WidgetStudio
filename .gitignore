@@ -1,8 +1,14 @@
 /build/
+/cmake-build-*/
+/.idea/
+/.vs/
 /dist/
-/out/sandbox/*
+/out/*
+!/out/sandbox/
+out/sandbox/*
 !/out/sandbox/.gitkeep
 *.user
 *.suo
 *.VC.db
+*.log
 *.pdb
