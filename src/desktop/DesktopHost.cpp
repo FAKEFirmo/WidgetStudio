@@ -87,13 +87,14 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         return false;
     }
 
-    if (!tray_.Initialize(hwnd_) ||
-        !RegisterHotKey(hwnd_, kHotkeyToggleEdit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'W')) {
+    if (!tray_.Initialize(hwnd_)) {
         tray_.Shutdown();
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
     }
+    hotkeyRegistered_ = RegisterHotKey(
+        hwnd_, kHotkeyToggleEdit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'W') != FALSE;
 
     monitorTopology_.Refresh();
     activeMonitorId_ = HostMonitorId();
@@ -729,7 +730,8 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         secondarySurfaces_.clear();
         desktopBackend_.Detach(hwnd_);
         KillTimer(hwnd_, kWidgetUpdateTimer);
-        UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
+        if (hotkeyRegistered_) UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
+        hotkeyRegistered_ = false;
         tray_.Shutdown();
         PostQuitMessage(0);
         return 0;

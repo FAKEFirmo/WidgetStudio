@@ -46,7 +46,8 @@ public:
     bool SetWidgetLocked(std::string_view instanceId, bool locked) noexcept;
     bool SetWidgetLayoutMode(std::string_view instanceId, LayoutMode mode,
         const GridLayout& grid, const GridMetrics& metrics) noexcept;
-    bool AlignSelected(AlignmentOperation operation, RectF bounds) noexcept;
+    bool AlignSelected(AlignmentOperation operation, RectF bounds,
+        std::wstring_view monitorId = {}) noexcept;
     [[nodiscard]] WidgetSceneSnapshot Snapshot() const;
     WidgetInstance* RestoreWidget(const WidgetPersistenceRecord& record, bool select = false);
 

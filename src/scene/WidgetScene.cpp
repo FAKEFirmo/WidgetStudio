@@ -187,10 +187,12 @@ bool WidgetScene::SetWidgetLayoutMode(
     return true;
 }
 
-bool WidgetScene::AlignSelected(AlignmentOperation operation, RectF bounds) noexcept {
+bool WidgetScene::AlignSelected(
+    AlignmentOperation operation, RectF bounds, std::wstring_view monitorId) noexcept {
     std::vector<AlignmentItem> items;
     for (auto& widget : widgets_) {
-        if (widget.selected && widget.layoutMode == LayoutMode::Free) {
+        if (widget.selected && widget.layoutMode == LayoutMode::Free &&
+            (monitorId.empty() || widget.monitorId == monitorId)) {
             items.push_back(AlignmentItem{&widget.free, widget.primarySelection, widget.locked});
         }
     }

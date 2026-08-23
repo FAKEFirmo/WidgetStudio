@@ -8,8 +8,29 @@
 #include <objbase.h>
 
 namespace ws {
+namespace {
+
+struct HandleCloser {
+    void operator()(void* handle) const noexcept {
+        if (handle) CloseHandle(handle);
+    }
+};
+
+} // namespace
 
 int Application::Run(HINSTANCE instance, int showCommand) {
+    const HANDLE instanceMutex = CreateMutexW(nullptr, FALSE, L"Local\\WidgetStudio.SingleInstance");
+    const DWORD instanceMutexError = GetLastError();
+    if (!instanceMutex) {
+        MessageBoxW(nullptr, L"Widget Studio could not create its single-instance guard.",
+            L"Widget Studio", MB_OK | MB_ICONERROR);
+        return 1;
+    }
+    const std::unique_ptr<void, HandleCloser> instanceGuard(instanceMutex);
+    if (instanceMutexError == ERROR_ALREADY_EXISTS) {
+        return 0;
+    }
+
     // The app is designed for correct behavior when a window crosses monitors
     // with different scale factors.
     if (!SetProcessDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2)) {

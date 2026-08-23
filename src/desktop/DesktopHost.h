@@ -97,6 +97,7 @@ private:
     UINT dpi_{96};
     UINT taskbarCreatedMessage_{};
     bool editMode_{true};
+    bool hotkeyRegistered_{false};
     std::wstring activeMonitorId_;
     GridMetrics activeMetrics_{};
     RectF activeBounds_{};

@@ -23,6 +23,8 @@ Application
 
 Widget registration is explicit during application startup. There is no static self-registration and no external DLL/plugin loading. Stable string type IDs are the serialization identity of built-in widget types; the host and interaction layers never branch on those IDs.
 
+A per-user named mutex rejects a second launch before COM, rendering, or persistence initialization, ensuring every monitor surface and widget instance remains inside one process and preventing concurrent writes to the same scene.
+
 ## Widget type and instance
 
 `WidgetDescriptor` describes a type: stable type ID, display metadata, default/minimum/maximum grid footprint, capability flags, and its content factory. `WidgetRegistry` owns the descriptor catalog, supports enumeration and lookup, and constructs `IWidget` content without depending on UI code.

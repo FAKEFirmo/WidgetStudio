@@ -406,7 +406,8 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
 
 void WidgetStudioWindow::ApplyAlignment() {
     const LRESULT selection = SendMessageW(alignment_, CB_GETCURSEL, 0, 0);
-    if (selection != CB_ERR && scene_->AlignSelected(static_cast<AlignmentOperation>(selection), layoutBounds_))
+    if (selection != CB_ERR && scene_->AlignSelected(
+            static_cast<AlignmentOperation>(selection), layoutBounds_, monitorId_))
         NotifySceneChanged();
 }
 
