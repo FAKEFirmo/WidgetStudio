@@ -35,7 +35,8 @@ struct MediaSessionService::Impl {
             stopping = true;
         }
         queueChanged.notify_one();
-        if (worker.joinable()) worker.join();
+        try { if (worker.joinable()) worker.join(); }
+        catch (...) {}
     }
 
     bool Enqueue(Command command) noexcept {
@@ -255,7 +256,10 @@ void MediaSessionService::Publish(MediaSessionSnapshot snapshot) {
         snapshot_ = std::move(snapshot);
         callback = changedCallback_;
     }
-    if (callback) callback();
+    if (callback) {
+        try { callback(); }
+        catch (...) {}
+    }
 }
 
 bool MediaSessionService::Previous() noexcept {

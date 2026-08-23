@@ -254,7 +254,7 @@ std::wstring DesktopHost::ActiveMonitorId() const {
     return L"primary";
 }
 
-DesktopTargetBounds DesktopHost::ActiveDesktopTarget() const noexcept {
+DesktopTargetBounds DesktopHost::ActiveDesktopTarget() const {
     const MonitorDescriptor* monitor = monitorTopology_.Find(ActiveMonitorId());
     if (!monitor) monitor = monitorTopology_.Primary();
     if (!monitor) return {};

@@ -27,7 +27,7 @@ public:
     [[nodiscard]] const std::vector<MonitorDescriptor>& Monitors() const noexcept { return monitors_; }
     [[nodiscard]] const MonitorDescriptor* Find(std::wstring_view id) const noexcept;
     [[nodiscard]] const MonitorDescriptor* Primary() const noexcept;
-    std::size_t MigrateMissingWidgets(WidgetScene& scene, int gridColumns, int gridRows) const noexcept;
+    std::size_t MigrateMissingWidgets(WidgetScene& scene, int gridColumns, int gridRows) const;
 
 private:
     std::vector<MonitorDescriptor> monitors_;

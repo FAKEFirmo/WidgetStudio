@@ -62,7 +62,7 @@ const MonitorDescriptor* MonitorTopology::Primary() const noexcept {
 }
 
 std::size_t MonitorTopology::MigrateMissingWidgets(
-    WidgetScene& scene, int gridColumns, int gridRows) const noexcept {
+    WidgetScene& scene, int gridColumns, int gridRows) const {
     const MonitorDescriptor* destination = Primary();
     if (!destination) return 0;
     std::size_t migrated = 0;
