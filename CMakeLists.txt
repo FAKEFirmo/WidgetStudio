@@ -9,10 +9,13 @@ add_executable(WidgetStudio WIN32
     src/main.cpp
     src/app/Application.cpp
     src/app/TrayController.cpp
+    src/app/WidgetLibraryWindow.cpp
     src/desktop/DesktopHost.cpp
     src/layout/GridLayout.cpp
     src/rendering/Renderer.cpp
     src/scene/WidgetScene.cpp
+    src/widgets/DebugWidget.cpp
+    src/widgets/WidgetRegistry.cpp
 )
 
 target_include_directories(WidgetStudio PRIVATE src)

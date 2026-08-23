@@ -1,20 +1,24 @@
 #pragma once
 
 #include "app/TrayController.h"
+#include "app/WidgetLibraryWindow.h"
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
 #include "rendering/Renderer.h"
 #include "scene/WidgetScene.h"
+#include "widgets/WidgetRegistry.h"
 
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <windows.h>
 
 namespace ws {
 
 class DesktopHost {
 public:
-    DesktopHost() = default;
+    explicit DesktopHost(const WidgetRegistry& registry);
     ~DesktopHost();
 
     bool Create(HINSTANCE instance, int showCommand);
@@ -22,7 +26,7 @@ public:
 
 private:
     struct DragState {
-        std::uint64_t widgetId{};
+        std::string widgetId;
         PointF offset{};
     };
 
@@ -33,10 +37,16 @@ private:
     void ToggleEditMode();
     void SetEditMode(bool enabled);
     void UpdateMetrics();
-    void BeginDrag(std::uint64_t widgetId, PointF pointer);
+    void BeginDrag(std::string_view widgetId, PointF pointer);
     void UpdateDrag(PointF pointer);
     void EndDrag();
     void Paint();
+    void OpenWidgetLibrary();
+    void CreateWidget(std::string_view typeId);
+    void DeleteSelectedWidgets();
+    void DuplicatePrimaryWidget();
+    void TogglePrimaryWidgetLock();
+    [[nodiscard]] std::wstring ActiveMonitorId() const;
 
     [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
 
@@ -48,8 +58,10 @@ private:
     Renderer renderer_{};
     GridLayout grid_{};
     GridMetrics metrics_{};
-    WidgetScene scene_{};
+    const WidgetRegistry& registry_;
+    WidgetScene scene_;
     TrayController tray_{};
+    WidgetLibraryWindow library_{};
     std::optional<DragState> drag_{};
 };
 

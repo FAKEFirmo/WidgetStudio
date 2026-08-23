@@ -1,15 +1,15 @@
 #pragma once
 
-#include <cstdint>
+#include "widgets/IWidget.h"
+
+#include <memory>
 #include <string>
 
 namespace ws {
 
-enum class WidgetType {
-    Clock,
-    Calendar,
-    Music,
-    Photo,
+enum class LayoutMode {
+    Grid,
+    Free,
 };
 
 struct GridPlacement {
@@ -19,30 +19,32 @@ struct GridPlacement {
     int rowSpan{1};
 };
 
+struct FreePlacement {
+    float x{};
+    float y{};
+    float width{320.0f};
+    float height{180.0f};
+};
+
 struct WidgetAppearance {
+    bool glassEnabled{true};
     float opacity{0.62f};
     float cornerRadius{22.0f};
-    float contentScale{1.0f};
 };
 
 struct WidgetInstance {
-    std::uint64_t id{};
-    WidgetType type{WidgetType::Clock};
+    std::string instanceId;
+    std::string typeId;
+    std::wstring monitorId{L"primary"};
+    LayoutMode layoutMode{LayoutMode::Grid};
     GridPlacement grid{};
+    FreePlacement free{};
     WidgetAppearance appearance{};
+    float contentScale{1.0f};
     bool locked{false};
     bool selected{false};
     bool primarySelection{false};
+    std::unique_ptr<IWidget> content;
 };
-
-inline std::wstring WidgetTypeName(WidgetType type) {
-    switch (type) {
-    case WidgetType::Clock: return L"Clock";
-    case WidgetType::Calendar: return L"Calendar";
-    case WidgetType::Music: return L"Music";
-    case WidgetType::Photo: return L"Photo";
-    }
-    return L"Widget";
-}
 
 } // namespace ws

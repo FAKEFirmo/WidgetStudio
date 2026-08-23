@@ -36,6 +36,8 @@ Maintain these boundaries:
 
 Do not let an individual widget implement desktop positioning, selection, grid snapping, or general drag behavior.
 
+Widget types are registered explicitly at application startup using stable string type IDs. A widget type descriptor/factory and a scene-owned widget instance are separate concepts. Desktop host, scene, renderer, and interaction code must remain free of concrete widget-type conditionals.
+
 ## Layout rules
 Two outer-layout modes are planned:
 1. Grid mode stores `column`, `row`, `columnSpan`, `rowSpan`.
@@ -129,12 +131,13 @@ Work in small milestones. Do not implement several large subsystems in one task 
 
 Current priority order:
 1. Shared scene/layout/interaction foundation.
-2. Authored content-layout engine.
-3. Production Clock widget.
-4. Widget Studio settings window backed by the same scene.
-5. Persistence.
-6. Calendar.
-7. Photo.
-8. Music/media sessions.
-9. Multi-monitor/DPI hardening.
-10. Desktop attachment backend and final performance/polish.
+2. Widget framework and registry-driven library.
+3. Authored content-layout engine.
+4. Production Clock widget.
+5. Widget Studio settings window backed by the same scene.
+6. Persistence.
+7. Calendar.
+8. Photo.
+9. Music/media sessions.
+10. Multi-monitor/DPI hardening.
+11. Desktop attachment backend and final performance/polish.

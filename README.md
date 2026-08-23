@@ -39,14 +39,17 @@ Air reads `AGENTS.md` as project instructions, so architectural constraints and 
 
 ## Current milestone
 
-The current foundation includes:
+The current foundation and widget framework include:
 
 - Win32 application lifecycle
 - Per-monitor DPI awareness V2
 - Direct2D / DirectWrite renderer
 - WIC current-wallpaper loading
 - 12 x 7 square grid
-- Clock / Calendar / Music / Photo placeholder scene objects
+- explicit widget descriptors, factories, and a central registry
+- generic widget instances with stable type IDs and unique instance IDs
+- a registry-driven native Widget Library
+- a minimal DebugWidget used to validate multiple instances
 - click selection and Shift-click multi-selection
 - grid-snapped dragging
 - widget lock state
@@ -73,7 +76,10 @@ cmake --build build --config Debug
 - `Ctrl + Alt + W`: toggle edit mode.
 - `Esc`: exit edit mode.
 - Double-click the tray icon: toggle edit mode.
-- Right-click the tray icon: edit/finish editing or exit.
+- Right-click the tray icon: add a widget, edit/finish editing, or exit.
+- `Delete`: remove selected widgets in edit mode.
+- `Ctrl+D`: duplicate the primary selection.
+- `Ctrl+L`: toggle the primary selection's lock.
 
 ## Project guidance
 

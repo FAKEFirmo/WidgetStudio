@@ -12,6 +12,10 @@ constexpr int kHotkeyToggleEdit = 1;
 
 } // namespace
 
+DesktopHost::DesktopHost(const WidgetRegistry& registry) : registry_(registry), scene_(registry) {
+    scene_.SetGridDimensions(grid_.Columns(), grid_.Rows());
+}
+
 DesktopHost::~DesktopHost() {
     if (hwnd_ && IsWindow(hwnd_)) {
         DestroyWindow(hwnd_);
@@ -71,6 +75,7 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     }
 
     UpdateMetrics();
+    CreateWidget("debug");
     ShowWindow(hwnd_, showCommand);
     UpdateWindow(hwnd_);
     return true;
@@ -145,16 +150,55 @@ void DesktopHost::SetEditMode(bool enabled) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void DesktopHost::BeginDrag(std::uint64_t widgetId, PointF pointer) {
+void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer) {
     WidgetInstance* widget = scene_.Find(widgetId);
     if (!widget || widget->locked) return;
 
     const RectF rect = grid_.RectFor(widget->grid, metrics_);
     drag_ = DragState{
-        .widgetId = widgetId,
+        .widgetId = std::string(widgetId),
         .offset = PointF{pointer.x - rect.x, pointer.y - rect.y},
     };
     SetCapture(hwnd_);
+}
+
+void DesktopHost::OpenWidgetLibrary() {
+    library_.Open(hwnd_, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
+}
+
+void DesktopHost::CreateWidget(std::string_view typeId) {
+    if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
+    SetEditMode(true);
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+std::wstring DesktopHost::ActiveMonitorId() const {
+    MONITORINFOEXW info{};
+    info.cbSize = sizeof(info);
+    const HMONITOR monitor = MonitorFromWindow(hwnd_, MONITOR_DEFAULTTONEAREST);
+    if (monitor && GetMonitorInfoW(monitor, reinterpret_cast<MONITORINFO*>(&info))) return info.szDevice;
+    return L"primary";
+}
+
+void DesktopHost::DeleteSelectedWidgets() {
+    EndDrag();
+    if (scene_.RemoveSelectedWidgets() > 0) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void DesktopHost::DuplicatePrimaryWidget() {
+    const auto primary = scene_.PrimarySelection();
+    if (primary && scene_.DuplicateWidget(*primary)) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void DesktopHost::TogglePrimaryWidgetLock() {
+    const auto primary = scene_.PrimarySelection();
+    if (!primary) return;
+    const WidgetInstance* widget = scene_.Find(*primary);
+    if (!widget) return;
+    const bool lock = !widget->locked;
+    scene_.SetWidgetLocked(*primary, lock);
+    if (lock) EndDrag();
+    InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void DesktopHost::UpdateDrag(PointF pointer) {
@@ -264,6 +308,20 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             SetEditMode(false);
             return 0;
         }
+        if (editMode_ && wParam == VK_DELETE) {
+            DeleteSelectedWidgets();
+            return 0;
+        }
+        if (editMode_ && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
+            if (wParam == 'D') {
+                DuplicatePrimaryWidget();
+                return 0;
+            }
+            if (wParam == 'L') {
+                TogglePrimaryWidgetLock();
+                return 0;
+            }
+        }
         break;
 
     case WM_HOTKEY:
@@ -277,6 +335,9 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         switch (LOWORD(wParam)) {
         case TrayController::kCommandToggleEdit:
             ToggleEditMode();
+            return 0;
+        case TrayController::kCommandAddWidget:
+            OpenWidgetLibrary();
             return 0;
         case TrayController::kCommandExit:
             DestroyWindow(hwnd_);

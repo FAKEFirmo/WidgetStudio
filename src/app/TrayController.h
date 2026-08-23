@@ -9,7 +9,8 @@ class TrayController {
 public:
     static constexpr UINT kTrayCallbackMessage = WM_APP + 10;
     static constexpr UINT kCommandToggleEdit = 40001;
-    static constexpr UINT kCommandExit = 40002;
+    static constexpr UINT kCommandAddWidget = 40002;
+    static constexpr UINT kCommandExit = 40003;
 
     TrayController() = default;
     ~TrayController();

@@ -39,7 +39,6 @@ private:
     void DrawWallpaper();
     void DrawGrid(const GridLayout& layout, const GridMetrics& metrics);
     void DrawWidget(const WidgetInstance& widget, RectF rect, bool editMode);
-    void DrawWidgetPlaceholder(const WidgetInstance& widget, RectF rect);
     void DrawSelection(const WidgetInstance& widget, RectF rect);
 
     D2D1_RECT_F ToD2D(RectF rect) const noexcept;

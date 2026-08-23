@@ -1,4 +1,5 @@
 #include "rendering/Renderer.h"
+#include "rendering/WidgetRenderContext.h"
 
 #include <algorithm>
 #include <array>
@@ -249,69 +250,19 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
     renderTarget_->FillRoundedRectangle(&rounded, surfaceBrush.Get());
     renderTarget_->DrawRoundedRectangle(&rounded, borderBrush.Get(), 1.0f);
 
-    DrawWidgetPlaceholder(widget, rect);
+    if (widget.content) {
+        widget.content->Render(WidgetRenderContext{
+            .renderTarget = *renderTarget_,
+            .titleFormat = *labelFormat_,
+            .detailFormat = *smallFormat_,
+            .bounds = rect,
+            .instanceId = widget.instanceId,
+            .contentScale = widget.contentScale,
+        });
+    }
 
     if (editMode && widget.selected) {
         DrawSelection(widget, rect);
-    }
-}
-
-void Renderer::DrawWidgetPlaceholder(const WidgetInstance& widget, RectF rect) {
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> textBrush;
-    Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> mutedBrush;
-    if (FAILED(renderTarget_->CreateSolidColorBrush(Color(0.97f, 0.97f, 0.95f, 0.96f), textBrush.GetAddressOf()))) {
-        return;
-    }
-    if (FAILED(renderTarget_->CreateSolidColorBrush(Color(0.97f, 0.97f, 0.95f, 0.52f), mutedBrush.GetAddressOf()))) {
-        return;
-    }
-
-    const float padding = std::max(10.0f, std::min(rect.width, rect.height) * 0.09f);
-    const std::wstring title = WidgetTypeName(widget.type);
-    const std::wstring subtitle = L"Milestone 1 placeholder";
-
-    const D2D1_RECT_F titleRect = D2D1::RectF(
-        rect.Left() + padding,
-        rect.Top() + padding,
-        rect.Right() - padding,
-        rect.Top() + padding + 28.0f);
-    const D2D1_RECT_F subtitleRect = D2D1::RectF(
-        rect.Left() + padding,
-        rect.Top() + padding + 31.0f,
-        rect.Right() - padding,
-        rect.Top() + padding + 52.0f);
-
-    renderTarget_->DrawTextW(
-        title.c_str(),
-        static_cast<UINT32>(title.size()),
-        labelFormat_.Get(),
-        &titleRect,
-        textBrush.Get(),
-        D2D1_DRAW_TEXT_OPTIONS_CLIP);
-
-    renderTarget_->DrawTextW(
-        subtitle.c_str(),
-        static_cast<UINT32>(subtitle.size()),
-        smallFormat_.Get(),
-        &subtitleRect,
-        mutedBrush.Get(),
-        D2D1_DRAW_TEXT_OPTIONS_CLIP);
-
-    // Simple widget-specific geometry makes it immediately obvious which
-    // placeholder is which without implementing the production widget yet.
-    if (widget.type == WidgetType::Music) {
-        const float artSize = std::min(rect.height * 0.34f, rect.width * 0.18f);
-        const RectF art{rect.Left() + padding, rect.Bottom() - padding - artSize, artSize, artSize};
-        const D2D1_ROUNDED_RECT roundedArt = D2D1::RoundedRect(ToD2D(art), 10.0f, 10.0f);
-        renderTarget_->FillRoundedRectangle(&roundedArt, mutedBrush.Get());
-    } else if (widget.type == WidgetType::Photo) {
-        const RectF imageRect{
-            rect.Left() + padding,
-            rect.Top() + padding + 58.0f,
-            std::max(1.0f, rect.width - 2.0f * padding),
-            std::max(1.0f, rect.height - 2.0f * padding - 58.0f)};
-        const D2D1_ROUNDED_RECT roundedImage = D2D1::RoundedRect(ToD2D(imageRect), 10.0f, 10.0f);
-        renderTarget_->DrawRoundedRectangle(&roundedImage, mutedBrush.Get(), 1.0f);
     }
 }
 
