@@ -10,6 +10,7 @@
 #include "widgets/WidgetRegistry.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -17,9 +18,11 @@
 
 namespace ws {
 
+class MediaSessionService;
+
 class DesktopHost {
 public:
-    explicit DesktopHost(const WidgetRegistry& registry);
+    DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession);
     ~DesktopHost();
 
     bool Create(HINSTANCE instance, int showCommand);
@@ -71,6 +74,7 @@ private:
     GridLayout grid_{};
     GridMetrics metrics_{};
     const WidgetRegistry& registry_;
+    std::shared_ptr<MediaSessionService> mediaSession_;
     WidgetScene scene_;
     SceneStore sceneStore_;
     WidgetSceneSnapshot unrestoredRecords_;

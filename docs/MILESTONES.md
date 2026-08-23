@@ -71,12 +71,18 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 - pure proportional fill/fit and continuous focal-point math
 - application-owned atomic local asset import
 
-## M7 - Music
+## M7 - Music (implemented, build validation pending)
 
 - Windows Global System Media Transport Controls integration
 - metadata/artwork
 - Previous / Play-Pause / Next and progress timeline
 - authored Ultra-wide / Landscape / Square / Portrait layouts
+- shared event-driven Windows media-session service
+- cached media snapshot and artwork revision handling
+- square proportional artwork decoding through WIC
+- one progress bar, elapsed and negative-remaining time
+- vector Previous / Play-Pause / Next controls through generic action hit testing
+- 500 ms one-shot progress refresh only while playing
 
 ## M8 - Desktop integration
 

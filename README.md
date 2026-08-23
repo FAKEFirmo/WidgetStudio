@@ -53,6 +53,7 @@ The current foundation and widget framework include:
 - a production Clock widget using the shared authored-layout engine
 - a localized six-week Calendar widget
 - a WIC Photo widget with proportional fill/fit and focal positioning
+- a Windows media-session Music widget with event-driven metadata and transport controls
 - an application-owned local asset import service
 - one-shot widget update scheduling at displayed minute/second boundaries
 - versioned local scene persistence with atomic replacement and backup

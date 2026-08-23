@@ -13,6 +13,7 @@ namespace ws {
 
 struct WidgetRenderContext {
     ID2D1RenderTarget& renderTarget;
+    ID2D1Factory& d2dFactory;
     IDWriteFactory& dwriteFactory;
     IWICImagingFactory& wicFactory;
     IDWriteTextFormat& titleFormat;

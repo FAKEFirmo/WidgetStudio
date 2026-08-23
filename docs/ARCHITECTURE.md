@@ -86,6 +86,10 @@ Widgets draw reference geometry through one Direct2D transform. Clock uses a 270
 
 `IWidget::NextUpdateTime()` optionally advertises the next instant at which rendered content can change. `DesktopHost` scans instances and arms one Win32 one-shot timer for the earliest request. The Clock requests the next minute boundary by default or the next second boundary when seconds are enabled. There is no continuous render loop.
 
+Music metadata, playback state, timeline state, and artwork originate only from `GlobalSystemMediaTransportControlsSessionManager` through the shared `windows/MediaSessionService`. Session events update a mutex-protected snapshot and post a lightweight host notification. Artwork bytes are shared and refreshed only on media-property changes; playback/timeline events do not re-fetch or copy artwork. While playing, Music requests a 500 ms one-shot progress refresh.
+
+Music uses the established Portrait, Square, Landscape, and Ultra-wide authored profiles. Each profile contains exactly one square artwork region, one progress bar, elapsed/negative-remaining labels, and Previous/Play-Pause/Next vector controls. Transport hit regions are returned through the generic widget-action interface.
+
 ## Photo invariant
 
 Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fill` (uniform scale plus focal crop) and `fit` (uniform scale plus letterbox/pillarbox) calculations as pure tested logic. `PhotoWidget` decodes local files with WIC and caches its target-dependent Direct2D bitmap by render-resource generation. `AssetLibrary` copies chosen source files into application-owned local storage through a temporary file and same-volume move.

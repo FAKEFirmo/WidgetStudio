@@ -2,7 +2,9 @@
 #include "desktop/DesktopHost.h"
 #include "widgets/BuiltInWidgets.h"
 #include "widgets/WidgetRegistry.h"
+#include "windows/MediaSessionService.h"
 
+#include <memory>
 #include <objbase.h>
 
 namespace ws {
@@ -35,19 +37,20 @@ int Application::Run(HINSTANCE instance, int showCommand) {
     {
         // Keep every COM-owning subsystem inside this scope so its interfaces
         // are released before the matching CoUninitialize call.
+        auto mediaSession = std::make_shared<MediaSessionService>();
+        static_cast<void>(mediaSession->Initialize());
         WidgetRegistry registry;
-        if (!RegisterBuiltInWidgets(registry)) {
+        if (!RegisterBuiltInWidgets(registry, mediaSession)) {
             MessageBoxW(nullptr, L"Widget Studio could not register its built-in widget types.",
                         L"Widget Studio", MB_OK | MB_ICONERROR);
-            if (comInitialized) CoUninitialize();
-            return 1;
-        }
-        DesktopHost host(registry);
-        if (!host.Create(instance, showCommand)) {
-            MessageBoxW(nullptr, L"Widget Studio could not initialize.",
-                        L"Widget Studio", MB_OK | MB_ICONERROR);
         } else {
-            result = host.RunMessageLoop();
+            DesktopHost host(registry, mediaSession);
+            if (!host.Create(instance, showCommand)) {
+                MessageBoxW(nullptr, L"Widget Studio could not initialize.",
+                            L"Widget Studio", MB_OK | MB_ICONERROR);
+            } else {
+                result = host.RunMessageLoop();
+            }
         }
     }
 

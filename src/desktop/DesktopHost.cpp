@@ -2,10 +2,12 @@
 
 #include "layout/OuterLayout.h"
 #include "rendering/WidgetVisualStyle.h"
+#include "windows/MediaSessionService.h"
 
 #include <algorithm>
 #include <chrono>
 #include <limits>
+#include <utility>
 #include <windowsx.h>
 
 namespace ws {
@@ -15,15 +17,18 @@ constexpr wchar_t kWindowClassName[] = L"WidgetStudioHostWindow";
 constexpr wchar_t kWindowTitle[] = L"Widget Studio - Development Host";
 constexpr int kHotkeyToggleEdit = 1;
 constexpr UINT_PTR kWidgetUpdateTimer = 2;
+constexpr UINT kMediaSessionChangedMessage = WM_APP + 12;
 
 } // namespace
 
-DesktopHost::DesktopHost(const WidgetRegistry& registry)
-    : registry_(registry), scene_(registry), sceneStore_(SceneStore::DefaultConfigPath()) {
+DesktopHost::DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession)
+    : registry_(registry), mediaSession_(std::move(mediaSession)), scene_(registry),
+      sceneStore_(SceneStore::DefaultConfigPath()) {
     scene_.SetGridDimensions(grid_.Columns(), grid_.Rows());
 }
 
 DesktopHost::~DesktopHost() {
+    if (mediaSession_) mediaSession_->SetChangedCallback({});
     if (hwnd_ && IsWindow(hwnd_)) {
         DestroyWindow(hwnd_);
     }
@@ -64,6 +69,12 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
 
     if (!hwnd_) {
         return false;
+    }
+    if (mediaSession_) {
+        const HWND notificationWindow = hwnd_;
+        mediaSession_->SetChangedCallback([notificationWindow] {
+            PostMessageW(notificationWindow, kMediaSessionChangedMessage, 0, 0);
+        });
     }
 
     dpi_ = std::max(96u, GetDpiForWindow(hwnd_));
@@ -395,6 +406,11 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         }
         break;
 
+    case kMediaSessionChangedMessage:
+        ScheduleNextWidgetUpdate();
+        InvalidateRect(hwnd_, nullptr, FALSE);
+        return 0;
+
     case WM_PAINT:
         Paint();
         return 0;
@@ -506,6 +522,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_DESTROY:
+        if (mediaSession_) mediaSession_->SetChangedCallback({});
         KillTimer(hwnd_, kWidgetUpdateTimer);
         UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
         tray_.Shutdown();

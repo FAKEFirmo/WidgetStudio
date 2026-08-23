@@ -26,10 +26,12 @@ add_executable(WidgetStudio WIN32
     src/widgets/CalendarWidget.cpp
     src/widgets/ClockWidget.cpp
     src/widgets/DebugWidget.cpp
+    src/widgets/MusicWidget.cpp
     src/widgets/PhotoWidget.cpp
     src/widgets/WidgetRegistry.cpp
     src/widgets/calendar/CalendarModel.cpp
     src/widgets/photo/PhotoLayout.cpp
+    src/windows/MediaSessionService.cpp
 )
 
 target_include_directories(WidgetStudio PRIVATE src)
@@ -55,6 +57,7 @@ target_link_libraries(WidgetStudio PRIVATE
     ole32
     user32
     gdi32
+    windowsapp
 )
 
 if(BUILD_TESTING)

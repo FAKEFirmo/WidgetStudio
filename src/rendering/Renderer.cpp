@@ -268,6 +268,7 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
     if (widget.content) {
         widget.content->Render(WidgetRenderContext{
             .renderTarget = *renderTarget_,
+            .d2dFactory = *d2dFactory_,
             .dwriteFactory = *dwriteFactory_,
             .wicFactory = *wicFactory_,
             .titleFormat = *labelFormat_,
