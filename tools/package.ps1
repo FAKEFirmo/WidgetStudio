@@ -11,6 +11,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $releaseRoot = Join-Path $OutputPath 'WidgetStudio'
+$outputRoot = [IO.Path]::GetFullPath($OutputPath).TrimEnd('\')
+$resolvedReleaseRoot = [IO.Path]::GetFullPath($releaseRoot).TrimEnd('\')
+if (-not $resolvedReleaseRoot.StartsWith($outputRoot + '\', [StringComparison]::OrdinalIgnoreCase)) {
+    throw "Portable release path '$resolvedReleaseRoot' must remain inside '$outputRoot'."
+}
+if (Test-Path -LiteralPath $resolvedReleaseRoot) {
+    Remove-Item -LiteralPath $resolvedReleaseRoot -Recurse -Force
+}
 New-Item -ItemType Directory -Force -Path $releaseRoot | Out-Null
 
 & $CMakePath --install $BuildPath --config Release --prefix $releaseRoot

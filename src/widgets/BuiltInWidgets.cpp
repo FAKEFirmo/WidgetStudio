@@ -13,12 +13,13 @@
 namespace ws {
 
 bool RegisterBuiltInWidgets(WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession) {
-    const std::filesystem::path assetDirectory =
-        SceneStore::DefaultConfigPath().parent_path() / L"assets";
-    return registry.Register(DebugWidget::Descriptor()) &&
-        registry.Register(ClockWidget::Descriptor()) &&
+    bool registered = true;
+#ifdef _DEBUG
+    registered = registry.Register(DebugWidget::Descriptor());
+#endif
+    return registered && registry.Register(ClockWidget::Descriptor()) &&
         registry.Register(CalendarWidget::Descriptor()) &&
-        registry.Register(PhotoWidget::Descriptor(assetDirectory)) &&
+        registry.Register(PhotoWidget::Descriptor(SceneStore::DefaultImageDirectory())) &&
         registry.Register(MusicWidget::Descriptor(std::move(mediaSession)));
 }
 

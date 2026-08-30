@@ -52,6 +52,7 @@ void TrayController::ShowContextMenu(bool editMode, bool launchAtLogin) {
     AppendMenuW(menu, MF_STRING, kCommandToggleEdit, editMode ? L"Finish editing" : L"Edit desktop");
     AppendMenuW(menu, MF_STRING, kCommandAddWidget, L"Add Widget...");
     AppendMenuW(menu, MF_STRING, kCommandOpenStudio, L"Open Widget Studio...");
+    AppendMenuW(menu, MF_STRING, kCommandLockAll, L"Lock All");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING | (launchAtLogin ? MF_CHECKED : MF_UNCHECKED),
         kCommandToggleLaunchAtLogin, L"Launch at login");

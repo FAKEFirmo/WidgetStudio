@@ -10,6 +10,7 @@ namespace ws {
 class DesktopBackendController {
 public:
     bool AttachConfigured(HWND host, DesktopTargetBounds target = {});
+    bool UpdateTarget(HWND host, DesktopTargetBounds target);
     void Reattach(HWND host);
     void Detach(HWND host) noexcept;
     [[nodiscard]] std::wstring_view ActiveName() const noexcept;

@@ -1,6 +1,7 @@
 #include "persistence/SceneJsonCodec.h"
 #include "persistence/SceneStore.h"
 #include "persistence/AssetLibrary.h"
+#include "desktop/WidgetWindowPlacement.h"
 #include "layout/AuthoredContentLayout.h"
 #include "layout/Alignment.h"
 #include "layout/OuterLayout.h"
@@ -136,6 +137,34 @@ void TestMonitorMigration() {
     Require(missing->free.x == 0.0f && missing->free.y == 0.0f &&
         missing->free.width == 800.0f && missing->free.height == 600.0f,
         "migrated free geometry should clamp to the destination work area");
+}
+
+void TestWidgetWindowPlacement() {
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    ws::WidgetInstance* widget = scene.CreateWidget("test", L"DISPLAY-SCALED");
+    Require(widget != nullptr, "window-placement fixture should be created");
+    widget->layoutMode = ws::LayoutMode::Free;
+    widget->free = {10.0f, 20.0f, 100.0f, 80.0f};
+    const ws::MonitorDescriptor monitor{
+        .id = L"DISPLAY-SCALED",
+        .workAreaDips = {0.0f, 0.0f, 1280.0f, 720.0f},
+        .pixelX = -1920,
+        .pixelY = 120,
+        .pixelWidth = 1920,
+        .pixelHeight = 1080,
+        .dpi = 144,
+    };
+    const ws::GridLayout grid;
+    const ws::GridMetrics metrics = grid.Calculate({1280.0f, 720.0f});
+    const ws::WidgetWindowPlacement placement =
+        ws::WidgetWindowPlacementCalculator::Calculate(*widget, grid, metrics, monitor);
+    Require(placement.widgetDips.x == 10.0f && placement.widgetInWindowDips.x == 5.0f,
+        "window placement should preserve widget geometry and reserve rendering margin");
+    Require(placement.screenX == -1912 && placement.screenY == 143,
+        "DIP origins should convert to physical pixels relative to the monitor");
+    Require(placement.pixelWidth == 165 && placement.pixelHeight == 135,
+        "DIP window dimensions should convert using the monitor DPI");
 }
 
 ws::WidgetPersistenceRecord ExampleRecord() {
@@ -354,6 +383,7 @@ int main() {
     try {
         TestRegistryAndPlacement();
         TestMonitorMigration();
+        TestWidgetWindowPlacement();
         TestSerialization();
         TestAuthoredLayout();
         TestAtomicStoreAndRestore();

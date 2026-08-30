@@ -4,10 +4,8 @@
 #include "app/WidgetLibraryWindow.h"
 #include "app/WidgetStudioWindow.h"
 #include "common/Geometry.h"
-#include "desktop/DesktopBackendController.h"
 #include "layout/GridLayout.h"
 #include "persistence/SceneStore.h"
-#include "rendering/Renderer.h"
 #include "scene/WidgetScene.h"
 #include "widgets/WidgetRegistry.h"
 #include "windows/MonitorTopology.h"
@@ -24,7 +22,7 @@
 namespace ws {
 
 class MediaSessionService;
-class DesktopSurface;
+class WidgetWindow;
 
 class DesktopHost {
 public:
@@ -35,7 +33,7 @@ public:
     int RunMessageLoop();
 
 private:
-    friend class DesktopSurface;
+    friend class WidgetWindow;
     struct WidgetActionHit {
         std::string instanceId;
         std::string actionId;
@@ -56,12 +54,10 @@ private:
     bool RegisterWindowClass(HINSTANCE instance);
     void ToggleEditMode();
     void SetEditMode(bool enabled);
-    void UpdateMetrics();
     void BeginDrag(std::string_view widgetId, PointF pointer, HWND captureWindow,
         const GridMetrics& metrics, RectF bounds);
     void UpdateDrag(PointF pointer);
     void EndDrag();
-    void Paint();
     void OpenWidgetLibrary();
     void OpenWidgetStudio();
     void ToggleLaunchAtLogin();
@@ -69,34 +65,27 @@ private:
     void DeleteSelectedWidgets();
     void DuplicatePrimaryWidget();
     void TogglePrimaryWidgetLock();
+    void LockAllWidgets();
     [[nodiscard]] SceneLoadStatus LoadScene();
     void SaveScene();
     void ScheduleNextWidgetUpdate();
     void InvalidateDesktop(bool reloadWallpaper = false);
-    void RebuildSecondarySurfaces();
+    void SynchronizeWidgetWindows();
     void RefreshMonitorConfiguration();
     void ActivateMonitor(std::wstring_view monitorId, const GridMetrics& metrics, RectF bounds);
     [[nodiscard]] std::wstring ActiveMonitorId() const;
-    [[nodiscard]] DesktopTargetBounds ActiveDesktopTarget() const;
-    [[nodiscard]] std::wstring HostMonitorId() const;
-
-    [[nodiscard]] PointF ClientPointFromLParam(LPARAM lParam) const noexcept;
-    [[nodiscard]] static PointF ClientPointFromLParam(LPARAM lParam, UINT dpi) noexcept;
-    [[nodiscard]] RectF ClientBounds() const noexcept;
-    [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(PointF point) const;
     [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(
-        PointF point, const GridMetrics& metrics, std::wstring_view monitorId) const;
-    LRESULT HandleSurfaceNcHitTest(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
-    void HandleSurfaceLeftDown(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
-    void HandleSurfaceMouseMove(DesktopSurface& surface, WPARAM wParam, LPARAM lParam);
-    bool HandleSurfaceKeyDown(WPARAM key);
+        const WidgetWindow& window, PointF localPoint) const;
+    LRESULT HandleWidgetNcHitTest(WidgetWindow& window, WPARAM wParam, LPARAM lParam);
+    void HandleWidgetLeftDown(WidgetWindow& window, WPARAM wParam, LPARAM lParam);
+    void HandleWidgetMouseMove(WidgetWindow& window, WPARAM wParam, LPARAM lParam);
+    bool HandleWidgetKeyDown(WPARAM key);
     [[nodiscard]] GridLayout& Grid() noexcept { return grid_; }
     [[nodiscard]] WidgetScene& Scene() noexcept { return scene_; }
     [[nodiscard]] bool EditMode() const noexcept { return editMode_; }
 
     HINSTANCE instance_{};
     HWND hwnd_{};
-    UINT dpi_{96};
     UINT taskbarCreatedMessage_{};
     bool editMode_{false};
     bool hotkeyRegistered_{false};
@@ -104,7 +93,6 @@ private:
     GridMetrics activeMetrics_{};
     RectF activeBounds_{};
 
-    Renderer renderer_{};
     GridLayout grid_{};
     GridMetrics metrics_{};
     const WidgetRegistry& registry_;
@@ -114,8 +102,7 @@ private:
     WidgetSceneSnapshot unrestoredRecords_;
     bool persistenceErrorShown_{false};
     TrayController tray_{};
-    DesktopBackendController desktopBackend_{};
-    std::vector<std::unique_ptr<DesktopSurface>> secondarySurfaces_;
+    std::vector<std::unique_ptr<WidgetWindow>> widgetWindows_;
     MonitorTopology monitorTopology_{};
     StartupShortcutService startupShortcut_{};
     WidgetLibraryWindow library_{};

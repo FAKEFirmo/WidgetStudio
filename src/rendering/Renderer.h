@@ -38,6 +38,13 @@ public:
         PointF sceneOffset = {},
         std::wstring_view monitorId = {});
 
+    HRESULT RenderWidget(
+        const WidgetInstance& widget,
+        bool editMode,
+        RectF windowBoundsOnMonitor,
+        SizeF monitorSize,
+        RectF widgetBoundsInWindow);
+
 private:
     HRESULT CreateDeviceResources();
     HRESULT LoadBitmapFromFile(const std::wstring& path);
@@ -62,6 +69,8 @@ private:
     Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;
     std::uint64_t resourceGeneration_{};
     std::uint64_t wallpaperRevision_{};
+    RectF wallpaperWindowBounds_{};
+    SizeF wallpaperDesktopSize_{};
 
     struct GlassCacheEntry {
         RectF targetRect{};

@@ -18,15 +18,13 @@ try {
     do {
         Start-Sleep -Milliseconds 250
         $process.Refresh()
-    } while (-not $process.HasExited -and $process.MainWindowHandle -eq 0 -and [DateTime]::UtcNow -lt $deadline)
+    } while (-not $process.HasExited -and [DateTime]::UtcNow -lt $deadline -and
+        -not (Test-Path -LiteralPath (Join-Path (Split-Path -Parent $ExecutablePath) 'data\config\scene.json')))
 
     if ($process.HasExited) {
         throw "WidgetStudio exited during startup with code $($process.ExitCode)."
     }
-    if ($process.MainWindowHandle -eq 0) {
-        throw 'WidgetStudio did not create its main window within 15 seconds.'
-    }
-    $scenePath = Join-Path (Split-Path -Parent $ExecutablePath) 'portable-data\scene.json'
+    $scenePath = Join-Path (Split-Path -Parent $ExecutablePath) 'data\config\scene.json'
     $sceneDeadline = [DateTime]::UtcNow.AddSeconds(5)
     while (-not (Test-Path -LiteralPath $scenePath) -and [DateTime]::UtcNow -lt $sceneDeadline) {
         Start-Sleep -Milliseconds 250
@@ -38,7 +36,7 @@ try {
     $report = [ordered]@{
         passed = $true
         processId = $process.Id
-        mainWindowHandle = ('0x{0:X}' -f $process.MainWindowHandle.ToInt64())
+        controllerArchitecture = 'hidden-controller-with-per-widget-HWNDs'
         portableScenePath = $scenePath
         observedAtUtc = [DateTime]::UtcNow.ToString('o')
     }

@@ -60,24 +60,59 @@ std::filesystem::path ExecutableDirectory() {
     }
 }
 
-} // namespace
-
-SceneStore::SceneStore(std::filesystem::path configPath) : configPath_(std::move(configPath)) {}
-
-std::filesystem::path SceneStore::DefaultConfigPath() {
-    const std::filesystem::path executableDirectory = ExecutableDirectory();
+bool PortableModeEnabled(const std::filesystem::path& executableDirectory) {
     std::error_code error;
-    if (std::filesystem::exists(executableDirectory / L"portable.mode", error)) {
-        return executableDirectory / L"portable-data" / L"scene.json";
-    }
+    return std::filesystem::exists(executableDirectory / L"portable.mode", error);
+}
 
+std::filesystem::path LocalDataDirectory(const std::filesystem::path& executableDirectory) {
     PWSTR localAppData = nullptr;
     if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_LocalAppData, KF_FLAG_DEFAULT, nullptr, &localAppData))) {
         std::filesystem::path path(localAppData);
         CoTaskMemFree(localAppData);
-        return path / L"WidgetStudio" / L"scene.json";
+        return path / L"WidgetStudio";
     }
-    return executableDirectory / L"portable-data" / L"scene.json";
+    return executableDirectory / L"data";
+}
+
+void MigrateLegacyPortableScene(const std::filesystem::path& executableDirectory,
+    const std::filesystem::path& configPath) {
+    const std::filesystem::path legacyPath = executableDirectory / L"portable-data" / L"scene.json";
+    std::error_code error;
+    if (std::filesystem::exists(configPath, error) || error) return;
+    error.clear();
+    if (!std::filesystem::exists(legacyPath, error) || error) return;
+    std::filesystem::create_directories(configPath.parent_path(), error);
+    if (error) return;
+    std::filesystem::copy_file(legacyPath, configPath,
+        std::filesystem::copy_options::none, error);
+}
+
+} // namespace
+
+SceneStore::SceneStore(std::filesystem::path configPath) : configPath_(std::move(configPath)) {}
+
+std::filesystem::path SceneStore::DefaultDataDirectory() {
+    const std::filesystem::path executableDirectory = ExecutableDirectory();
+    if (PortableModeEnabled(executableDirectory)) return executableDirectory / L"data";
+    return LocalDataDirectory(executableDirectory);
+}
+
+std::filesystem::path SceneStore::DefaultConfigPath() {
+    const std::filesystem::path executableDirectory = ExecutableDirectory();
+    const std::filesystem::path configPath = DefaultDataDirectory() / L"config" / L"scene.json";
+    if (PortableModeEnabled(executableDirectory)) {
+        MigrateLegacyPortableScene(executableDirectory, configPath);
+    }
+    return configPath;
+}
+
+std::filesystem::path SceneStore::DefaultImageDirectory() {
+    return DefaultDataDirectory() / L"images";
+}
+
+std::filesystem::path SceneStore::DefaultCacheDirectory() {
+    return DefaultDataDirectory() / L"cache";
 }
 
 SceneLoadResult SceneStore::Load() const {

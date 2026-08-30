@@ -216,7 +216,19 @@ void Renderer::DrawWallpaper() {
         return;
     }
 
-    const D2D1_RECT_F source = WallpaperSourceRect(targetSize, bitmapSize);
+    D2D1_RECT_F source = WallpaperSourceRect(targetSize, bitmapSize);
+    if (wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f &&
+        wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f) {
+        const D2D1_RECT_F desktopSource = WallpaperSourceRect(
+            D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height), bitmapSize);
+        const float scaleX = (desktopSource.right - desktopSource.left) / wallpaperDesktopSize_.width;
+        const float scaleY = (desktopSource.bottom - desktopSource.top) / wallpaperDesktopSize_.height;
+        source = D2D1::RectF(
+            desktopSource.left + wallpaperWindowBounds_.Left() * scaleX,
+            desktopSource.top + wallpaperWindowBounds_.Top() * scaleY,
+            desktopSource.left + wallpaperWindowBounds_.Right() * scaleX,
+            desktopSource.top + wallpaperWindowBounds_.Bottom() * scaleY);
+    }
 
     renderTarget_->DrawBitmap(
         wallpaperBitmap_.Get(),
@@ -245,14 +257,23 @@ void Renderer::DrawGlass(const WidgetInstance& widget, RectF rect) {
         cache.blurRadius != widget.appearance.blurRadius || !SameRect(cache.targetRect, targetRect)) {
         const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
         const D2D1_SIZE_F bitmapSize = wallpaperBitmap_->GetSize();
-        const D2D1_RECT_F fullSource = WallpaperSourceRect(targetSize, bitmapSize);
-        const float sourceScaleX = (fullSource.right - fullSource.left) / std::max(1.0f, targetSize.width);
-        const float sourceScaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, targetSize.height);
+        const D2D1_SIZE_F desktopSize = wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f
+            ? D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height) : targetSize;
+        const D2D1_RECT_F fullSource = WallpaperSourceRect(desktopSize, bitmapSize);
+        const bool windowRegion = wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f;
+        const float windowX = windowRegion ? wallpaperWindowBounds_.x : 0.0f;
+        const float windowY = windowRegion ? wallpaperWindowBounds_.y : 0.0f;
+        const float desktopScaleX = (fullSource.right - fullSource.left) / std::max(1.0f, desktopSize.width);
+        const float desktopScaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, desktopSize.height);
+        const float localScaleX = windowRegion ? desktopScaleX :
+            (fullSource.right - fullSource.left) / std::max(1.0f, targetSize.width);
+        const float localScaleY = windowRegion ? desktopScaleY :
+            (fullSource.bottom - fullSource.top) / std::max(1.0f, targetSize.height);
         const D2D1_RECT_F source = D2D1::RectF(
-            fullSource.left + targetRect.Left() * sourceScaleX,
-            fullSource.top + targetRect.Top() * sourceScaleY,
-            fullSource.left + targetRect.Right() * sourceScaleX,
-            fullSource.top + targetRect.Bottom() * sourceScaleY);
+            fullSource.left + windowX * desktopScaleX + targetRect.Left() * localScaleX,
+            fullSource.top + windowY * desktopScaleY + targetRect.Top() * localScaleY,
+            fullSource.left + windowX * desktopScaleX + targetRect.Right() * localScaleX,
+            fullSource.top + windowY * desktopScaleY + targetRect.Bottom() * localScaleY);
         const float downsample = std::clamp(1.0f + widget.appearance.blurRadius / 3.0f, 2.0f, 12.0f);
         const D2D1_SIZE_F smallSize = D2D1::SizeF(
             std::max(1.0f, targetRect.width / downsample),
@@ -369,10 +390,25 @@ void Renderer::DrawSelection(const WidgetInstance& widget, RectF rect) {
         ToD2D(expanded),
         widget.appearance.cornerRadius + 3.0f,
         widget.appearance.cornerRadius + 3.0f);
+    Microsoft::WRL::ComPtr<ID2D1StrokeStyle> secondaryStroke;
+    if (!widget.primarySelection) {
+        const D2D1_STROKE_STYLE_PROPERTIES properties{
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_CAP_STYLE_ROUND,
+            D2D1_LINE_JOIN_ROUND,
+            10.0f,
+            D2D1_DASH_STYLE_DASH,
+            0.0f,
+        };
+        static_cast<void>(d2dFactory_->CreateStrokeStyle(
+            properties, nullptr, 0, secondaryStroke.GetAddressOf()));
+    }
     renderTarget_->DrawRoundedRectangle(
         &rounded,
         brush.Get(),
-        widget.primarySelection ? 2.0f : 1.5f);
+        widget.primarySelection ? 2.0f : 1.5f,
+        secondaryStroke.Get());
 }
 
 HRESULT Renderer::Render(
@@ -384,6 +420,8 @@ HRESULT Renderer::Render(
     PointF sceneOffset,
     std::wstring_view monitorId) {
 
+    wallpaperWindowBounds_ = {};
+    wallpaperDesktopSize_ = {};
     HRESULT hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
 
@@ -414,6 +452,32 @@ HRESULT Renderer::Render(
         if (FAILED(recreateResult)) {
             return recreateResult;
         }
+        ReloadWallpaper();
+        return D2DERR_RECREATE_TARGET;
+    }
+    return hr;
+}
+
+HRESULT Renderer::RenderWidget(const WidgetInstance& widget, bool editMode,
+    RectF windowBoundsOnMonitor, SizeF monitorSize, RectF widgetBoundsInWindow) {
+    wallpaperWindowBounds_ = windowBoundsOnMonitor;
+    wallpaperDesktopSize_ = monitorSize;
+    HRESULT hr = CreateDeviceResources();
+    if (FAILED(hr)) return hr;
+
+    std::erase_if(glassCache_, [&widget](const auto& entry) {
+        return entry.first != widget.instanceId;
+    });
+
+    renderTarget_->BeginDraw();
+    DrawWallpaper();
+    renderTarget_->SetTransform(D2D1::Matrix3x2F::Identity());
+    DrawWidget(widget, widgetBoundsInWindow, editMode);
+    hr = renderTarget_->EndDraw();
+    if (hr == D2DERR_RECREATE_TARGET) {
+        DiscardDeviceResources();
+        const HRESULT recreateResult = CreateDeviceResources();
+        if (FAILED(recreateResult)) return recreateResult;
         ReloadWallpaper();
         return D2DERR_RECREATE_TARGET;
     }

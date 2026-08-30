@@ -13,6 +13,7 @@ public:
     static constexpr UINT kCommandOpenStudio = 40003;
     static constexpr UINT kCommandExit = 40004;
     static constexpr UINT kCommandToggleLaunchAtLogin = 40005;
+    static constexpr UINT kCommandLockAll = 40006;
 
     TrayController() = default;
     ~TrayController();

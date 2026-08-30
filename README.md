@@ -4,13 +4,13 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 
 ## Features
 
-- Registry-driven Clock, Calendar, Photo, Music, and diagnostic widgets with multiple independent instances.
+- Registry-driven Clock, Calendar, Photo, and Music widgets with multiple independent instances. A diagnostic widget is available only in Debug builds.
 - Square 12 x 7 grid placement plus free DIP layout, alignment, matching, and distribution.
 - Click/Shift-click selection, dragging, locking, duplication, removal, passive mode, and explicit widget action hit regions.
 - Native Widget Library and Widget Studio windows operating on the shared live scene.
 - Versioned atomic JSON persistence with backup and application-owned photo imports.
-- Per-Monitor DPI Awareness V2, simultaneous monitor-scoped WorkerW surfaces, monitor association/isolation, and missing-monitor migration.
-- A normal-window desktop backend by default and an explicitly opt-in experimental WorkerW backend with fallback and Explorer restart recovery.
+- Per-Monitor DPI Awareness V2, one lightweight HWND per widget, monitor association/isolation, and missing-monitor migration.
+- Real-desktop WorkerW attachment by default, with a non-crashing normal-window fallback and Explorer restart recovery.
 - Event-driven invalidation. No continuous idle render loop is used.
 
 ## Native Windows development
@@ -27,14 +27,14 @@ The script imports the MSVC x64 environment only for its own process, uses Ninja
 
 ## Run and controls
 
-Run `WidgetStudio.exe`. The normal windowed backend is the supported fallback. For an isolated experimental launch attached behind desktop icons:
+Run `WidgetStudio.exe`. Widget windows attempt Explorer desktop attachment automatically. WorkerW is undocumented Explorer behavior, so attachment failure falls back safely to non-activating bottom-z-order windows. To force that fallback for diagnostics:
 
 ```powershell
-$env:WIDGETSTUDIO_DESKTOP_BACKEND = 'workerw'
+$env:WIDGETSTUDIO_DESKTOP_BACKEND = 'windowed'
 .\WidgetStudio.exe
 ```
 
-WorkerW is undocumented Explorer behavior; attachment failure automatically falls back to the normal window.
+All widget HWNDs, management windows, tray handling, media integration, and persistence remain in one `WidgetStudio.exe` process.
 
 WidgetStudio starts in passive mode. Use the tray menu or `Ctrl+Alt+W` to enter Edit Mode.
 
@@ -49,11 +49,11 @@ WidgetStudio starts in passive mode. Use the tray menu or `Ctrl+Alt+W` to enter 
 
 ## Runtime data and removal
 
-Normal mode writes scene data and imported assets under `%LOCALAPPDATA%\WidgetStudio`. Saves use a temporary file, flush it, replace `scene.json`, and retain `scene.json.bak`.
+Normal mode writes scene data under `%LOCALAPPDATA%\WidgetStudio\config`, imported images under `%LOCALAPPDATA%\WidgetStudio\images`, and disposable cached data under `%LOCALAPPDATA%\WidgetStudio\cache`. Saves use a temporary file, flush it, replace `scene.json`, and retain `scene.json.bak`.
 
 Imported photos are persisted as `asset://` references relative to the active data directory, so moving a complete portable release folder does not invalidate them. Existing absolute paths remain readable for compatibility.
 
-When `portable.mode` exists beside the executable—as it does in the packaged release—data is written to `portable-data` beside the executable. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
+When `portable.mode` exists beside the executable—as it does in the packaged release—state stays under `data\config`, `data\images`, and `data\cache` beside the executable. An existing `portable-data\scene.json` is copied into the new configuration location once for compatibility. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
 
 Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WidgetStudio.lnk`; uncheck the same tray item to remove it. To uninstall cleanly, disable that option if used, exit WidgetStudio, and delete its folder.
 

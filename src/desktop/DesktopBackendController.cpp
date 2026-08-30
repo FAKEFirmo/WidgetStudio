@@ -1,5 +1,6 @@
 #include "desktop/DesktopBackendController.h"
 
+#include <algorithm>
 #include <array>
 #include <cwchar>
 #include <utility>
@@ -10,7 +11,13 @@ namespace {
 class WindowedDesktopBackend final : public IDesktopBackend {
 public:
     std::wstring_view Name() const noexcept override { return L"Windowed"; }
-    bool Attach(HWND, DesktopTargetBounds) override { return true; }
+    bool Attach(HWND host, DesktopTargetBounds target) override {
+        if (!host || !IsWindow(host)) return false;
+        if (!target.valid) return true;
+        return SetWindowPos(host, HWND_BOTTOM, target.x, target.y,
+            std::max(1, target.width), std::max(1, target.height),
+            SWP_NOACTIVATE | SWP_SHOWWINDOW) != FALSE;
+    }
     void Detach(HWND) noexcept override {}
 };
 
@@ -32,8 +39,10 @@ public:
         SetLastError(ERROR_SUCCESS);
         if (!SetParent(host, worker) && GetLastError() != ERROR_SUCCESS) return false;
         attached_ = true;
-        SetWindowLongPtrW(host, GWL_STYLE, (originalStyle_ & ~WS_OVERLAPPEDWINDOW) | WS_CHILD | WS_VISIBLE);
-        SetWindowLongPtrW(host, GWL_EXSTYLE, originalExtendedStyle_ | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE);
+        SetWindowLongPtrW(host, GWL_STYLE,
+            (originalStyle_ & ~(WS_OVERLAPPEDWINDOW | WS_POPUP)) | WS_CHILD | WS_VISIBLE);
+        SetWindowLongPtrW(host, GWL_EXSTYLE,
+            GetWindowLongPtrW(host, GWL_EXSTYLE) | WS_EX_TOOLWINDOW);
         RECT bounds{};
         if (!GetClientRect(worker, &bounds)) { Detach(host); return false; }
         POINT origin{};
@@ -90,12 +99,12 @@ private:
     bool attached_{false};
 };
 
-bool WorkerWRequested() {
+bool WindowedRequested() {
     std::array<wchar_t, 32> value{};
     const DWORD length = GetEnvironmentVariableW(
         L"WIDGETSTUDIO_DESKTOP_BACKEND", value.data(), static_cast<DWORD>(value.size()));
     return length > 0 && length < static_cast<DWORD>(value.size()) &&
-        _wcsicmp(value.data(), L"workerw") == 0;
+        _wcsicmp(value.data(), L"windowed") == 0;
 }
 
 } // namespace
@@ -103,7 +112,7 @@ bool WorkerWRequested() {
 bool DesktopBackendController::AttachConfigured(HWND host, DesktopTargetBounds target) {
     experimental_ = false;
     target_ = target;
-    if (WorkerWRequested()) {
+    if (!WindowedRequested()) {
         auto worker = std::make_unique<WorkerWDesktopBackend>();
         if (worker->Attach(host, target_)) {
             backend_ = std::move(worker);
@@ -113,6 +122,11 @@ bool DesktopBackendController::AttachConfigured(HWND host, DesktopTargetBounds t
     }
     backend_ = std::make_unique<WindowedDesktopBackend>();
     return backend_->Attach(host, target_);
+}
+
+bool DesktopBackendController::UpdateTarget(HWND host, DesktopTargetBounds target) {
+    target_ = target;
+    return backend_ ? backend_->Attach(host, target_) : AttachConfigured(host, target_);
 }
 
 void DesktopBackendController::Reattach(HWND host) {

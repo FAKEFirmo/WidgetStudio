@@ -9,12 +9,15 @@ Application
   WidgetRegistry
     WidgetDescriptor -> IWidget factory
   DesktopHost
+    hidden controller HWND (tray, timers, commands)
+    WidgetWindow per WidgetInstance
+      Renderer
+      DesktopBackendController
     WidgetLibraryWindow (enumerates registry)
     WidgetStudioWindow (shared-scene preview and settings)
     WidgetScene
       WidgetInstance -> owned IWidget content
     GridLayout
-    Renderer
     Interaction state
   TrayController
   DesktopBackendController -> IDesktopBackend
@@ -23,7 +26,7 @@ Application
 
 Widget registration is explicit during application startup. There is no static self-registration and no external DLL/plugin loading. Stable string type IDs are the serialization identity of built-in widget types; the host and interaction layers never branch on those IDs.
 
-A per-user named mutex rejects a second launch before COM, rendering, or persistence initialization, ensuring every monitor surface and widget instance remains inside one process and preventing concurrent writes to the same scene.
+A per-user named mutex rejects a second launch before COM, rendering, or persistence initialization, ensuring every widget window and instance remains inside one process and preventing concurrent writes to the same scene.
 
 ## Widget type and instance
 
@@ -79,7 +82,7 @@ In Editing mode, click establishes the primary selection, Shift-click toggles mu
 
 `SceneJsonCodec` encodes schema version 1 without a third-party dependency and rejects malformed input, unsupported versions, invalid values, and duplicate instance IDs. Unknown JSON fields are ignored for forward compatibility. Records whose widget type is unavailable are retained and written back instead of being discarded.
 
-`SceneStore` writes a temporary file in the configuration directory, flushes it, and uses same-volume Win32 replacement. When replacing an existing configuration it retains the previous file as `scene.json.bak`. Normal data lives under `%LOCALAPPDATA%\WidgetStudio`; an explicit `portable.mode` sentinel beside the executable redirects it to `portable-data` beside the executable.
+`SceneStore` writes a temporary file in the configuration directory, flushes it, and uses same-volume Win32 replacement. When replacing an existing configuration it retains the previous file as `scene.json.bak`. Normal data lives under `%LOCALAPPDATA%\WidgetStudio`; an explicit `portable.mode` sentinel redirects configuration, imported images, and cache data to `data\config`, `data\images`, and `data\cache` beside the executable. A legacy portable scene is copied forward without deleting the old file.
 
 ## Authored content layout model
 
@@ -99,7 +102,7 @@ Music uses the established Portrait, Square, Landscape, and Ultra-wide authored 
 
 ## Wallpaper and glass
 
-`Renderer` decodes the current wallpaper once through WIC and uses the same cached bitmap for the desktop and preview. Glass-enabled cards cache a low-resolution sample of the exact wallpaper region behind the card and bilinearly expand it beneath a rounded geometry mask; the downsample factor follows the configured blur radius. Cache entries invalidate only when the wallpaper, render target, DPI, card geometry, or blur radius changes. No desktop capture or continuous blur pass is used.
+Each HWND renderer decodes the current wallpaper once through WIC and retains its device-dependent bitmap until the wallpaper or render target changes. A widget window samples the monitor-relative wallpaper region behind its scene rectangle, so the rounded card composes consistently without screen capture. Glass-enabled cards cache a low-resolution regional sample and bilinearly expand it beneath a rounded geometry mask. Cache entries invalidate only when the wallpaper, render target, DPI, card geometry, or blur radius changes. No continuous capture or blur loop is used.
 
 ## Photo invariant
 
@@ -117,14 +120,16 @@ New imports persist as validated `asset://filename` references. The composition 
 
 ## Desktop and monitor boundary
 
-`IDesktopBackend` isolates attachment behavior from the scene, renderer, interaction system, and widgets. `DesktopBackendController` selects the reliable normal-window backend unless the process-local `WIDGETSTUDIO_DESKTOP_BACKEND=workerw` option requests the experimental backend. WorkerW discovery and attachment can fail without affecting widget state; the controller falls back to a normal window and reattaches after Explorer broadcasts `TaskbarCreated`.
+`IDesktopBackend` isolates attachment behavior from the scene, renderer, interaction system, and widgets. Every `WidgetWindow` owns a backend controller. It attempts WorkerW attachment by default and falls back to a non-activating bottom-z-order popup if Explorer's undocumented desktop host cannot be discovered. `WIDGETSTUDIO_DESKTOP_BACKEND=windowed` forces the fallback for diagnostics. Attachment failure never affects scene state.
 
-`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. Rendering and hit testing filter on the owning monitor ID so instances from different monitor scenes cannot overlap logically. In experimental desktop-attached mode, one primary host surface and a lightweight `DesktopSurface` for every additional display render the same process-owned scene with per-window DPI, grid metrics, input, and renderer resources. The last interacted surface becomes the Widget Studio and Widget Library target. Display changes rebuild those surfaces; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved.
+`DesktopHost` is a hidden controller HWND for tray callbacks, global commands, event-driven timers, and subsystem lifetime. It synchronizes exactly one lightweight `WidgetWindow` with every live scene instance. Each widget window computes its own physical position from monitor-local DIPs and effective DPI, renders only its instance, and performs only that widget's action hit testing. Passive regions return `HTTRANSPARENT`; Edit Mode temporarily makes the surface selectable and draggable. `WidgetWindowPlacementCalculator` keeps DIP-to-pixel conversion testable outside Win32 interaction code.
+
+`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. The last interacted widget window becomes the Widget Studio and Widget Library target. Display changes reposition all widget HWNDs; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved. After Explorer broadcasts `TaskbarCreated`, surviving windows reattach and destroyed child windows are recreated from the scene.
 
 ## Delivery boundary
 
-The Release target statically links the MSVC runtime and installs only `WidgetStudio.exe`, a runtime README, and the `portable.mode` marker. No compiler, SDK, service, registry entry, updater, or runtime package manager is part of the application release.
+The Release target statically links the MSVC runtime and installs `WidgetStudio.exe`, a runtime README, the `portable.mode` marker, and the empty application-owned `assets`/`data` directory structure. No compiler, SDK, service, registry entry, updater, or runtime package manager is part of the application release. DebugWidget is registered and linked only in Debug configurations.
 
-WidgetStudio is the sole widget host and keeps every desktop surface, widget, integration, and management window in its single guarded process. Portable mode redirects runtime state and imported assets to `portable-data` within the release folder. Optional launch-at-login uses one per-user `WidgetStudio.lnk` in the Windows Startup folder, managed from the tray and removable without registry access. Normal removal is: disable launch-at-login if enabled, exit the process, and delete the release folder.
+WidgetStudio is the sole widget host and keeps every widget HWND, integration, and management window in its single guarded process. Portable mode redirects runtime state and imported assets to `data` within the release folder. Optional launch-at-login uses one per-user `WidgetStudio.lnk` in the Windows Startup folder, managed from the tray and removable without registry access. Normal removal is: disable launch-at-login if enabled, exit the process, and delete the release folder.
 
 Development builds are equally isolated from the repository: CLion or the native PowerShell workflow generates Ninja trees under `C:\WidgetStudioBuild`. No VM, container, subsystem, package manager, or second runtime environment participates in building or running the application.

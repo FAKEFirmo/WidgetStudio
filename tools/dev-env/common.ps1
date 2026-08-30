@@ -11,6 +11,19 @@ function Resolve-Executable([string]$ExplicitPath, [string]$CommandName, [string
     $command = Get-Command $CommandName -ErrorAction SilentlyContinue
     if ($command) { return $command.Source }
 
+    $vswhere = Join-Path ${env:ProgramFiles(x86)} 'Microsoft Visual Studio\Installer\vswhere.exe'
+    if (Test-Path -LiteralPath $vswhere -PathType Leaf) {
+        $visualStudio = & $vswhere -latest -products * -property installationPath
+        if ($LASTEXITCODE -eq 0 -and $visualStudio) {
+            $visualStudioRelativePath = switch ($LeafName) {
+                'ninja.exe' { 'Common7\IDE\CommonExtensions\Microsoft\CMake\Ninja\ninja.exe' }
+                default { "Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\$LeafName" }
+            }
+            $visualStudioTool = Join-Path $visualStudio $visualStudioRelativePath
+            if (Test-Path -LiteralPath $visualStudioTool -PathType Leaf) { return $visualStudioTool }
+        }
+    }
+
     $standardClion = Join-Path $env:LOCALAPPDATA 'Programs\CLion'
     $relativeToolPath = switch ($LeafName) {
         'ninja.exe' { 'bin\ninja\win\x64\ninja.exe' }
@@ -32,7 +45,7 @@ function Resolve-Executable([string]$ExplicitPath, [string]$CommandName, [string
         if ($match) { return $match.FullName }
     }
 
-    throw "$LeafName was not found. Install/configure CLion with its bundled CMake and Ninja, or pass an explicit path."
+    throw "$LeafName was not found. Enable Visual Studio's C++ CMake tools or configure CLion's bundled tools, or pass an explicit path."
 }
 
 function Import-MsvcEnvironment([string]$VsDevCmdPath) {
@@ -54,11 +67,18 @@ function Import-MsvcEnvironment([string]$VsDevCmdPath) {
     $command = "`"$VsDevCmdPath`" -no_logo -arch=x64 -host_arch=x64 >nul && set"
     $environment = & $env:ComSpec /d /s /c $command
     if ($LASTEXITCODE -ne 0) { throw "VsDevCmd.bat failed with exit code $LASTEXITCODE." }
+    $importedNames = [Collections.Generic.HashSet[string]]::new([StringComparer]::OrdinalIgnoreCase)
     foreach ($line in $environment) {
         $separator = $line.IndexOf('=')
         if ($separator -gt 0) {
-            [Environment]::SetEnvironmentVariable(
-                $line.Substring(0, $separator), $line.Substring($separator + 1), 'Process')
+            $name = $line.Substring(0, $separator)
+            # cmd can emit both PATH and Path. PowerShell treats those names as the
+            # same variable, so importing the later stale spelling would discard
+            # the MSVC directories established by VsDevCmd.
+            if ($importedNames.Add($name)) {
+                [Environment]::SetEnvironmentVariable(
+                    $name, $line.Substring($separator + 1), 'Process')
+            }
         }
     }
     if (-not (Get-Command cl.exe -ErrorAction SilentlyContinue)) {

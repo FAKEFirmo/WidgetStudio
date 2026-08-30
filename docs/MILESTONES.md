@@ -19,7 +19,7 @@
 - generic create, remove, duplicate, and lock lifecycle operations
 - first-free grid placement with a clamped full-grid fallback
 - registry-driven native Widget Library through **Tray > Add Widget...**
-- DebugWidget for multiple-instance lifecycle validation
+- Debug-only Widget for multiple-instance lifecycle validation, excluded from Release
 - Delete, Ctrl+D, and Ctrl+L edit commands
 - encoding-neutral persistence records and registry-based restore path
 
@@ -30,7 +30,7 @@
 - atomic temporary-file write and Win32 replacement
 - previous-configuration backup
 - `%LOCALAPPDATA%\WidgetStudio` default location
-- opt-in portable-data mode beside the executable
+- opt-in `data\config`, `data\images`, and `data\cache` hierarchy beside the executable
 - event-driven saves after create, delete, duplicate, lock, and completed drag
 - unknown widget-type record preservation
 - focused codec, store, placement, ID, lifecycle, and restore tests
@@ -86,14 +86,15 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 - 500 ms one-shot progress refresh only while playing
 - dedicated event/command-driven MTA worker for WinRT media operations
 
-## M8 - Desktop integration (implemented; native build validation pending)
+## M8 - Desktop integration (implemented; Windows 11 desktop validation pending)
 
 - `IDesktopBackend`
 - stable desktop-host behavior
 - passive hit testing
-- optional isolated WorkerW backend
+- one lightweight HWND per widget with a hidden controller HWND
+- default WorkerW attachment with safe windowed fallback
 - Explorer restart recovery
-- process-local environment selection with automatic normal-window fallback
+- process-local diagnostic fallback selection
 - tray icon restoration after Explorer restarts
 
 ## M9 - Multi-monitor + polish (implemented; runtime validation pending)
@@ -103,7 +104,8 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 - wallpaper/cache refresh
 - startup option and packaging
 - monitor-scoped rendering and hit testing
-- simultaneous per-monitor desktop surfaces sharing one scene and process
+- simultaneous per-widget windows sharing one scene and process
+- tested monitor-DIP to physical-pixel widget-window placement
 - effective-DPI/work-area enumeration and missing-monitor migration
 - Per-Monitor V2 manifest, version resource, static runtime, and portable CMake install
 - opt-in removable Startup-folder shortcut with no registry configuration
@@ -112,4 +114,6 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 
 Pure-logic coverage is present for registry lifecycle, ID generation, monitor-isolated hit testing, grid placement, authored layout selection and fitting, scene serialization and restore, atomic persistence, alignment/distribution, Clock scheduling, Calendar generation, Photo fit/fill/focal math, and asset import.
 
-Native MSVC 19.51 configure, Debug build, and Release build now complete successfully with CLion's CMake/Ninja and all generated output under `C:\WidgetStudioBuild`. The portable install contains only `WidgetStudio.exe`, `README.txt`, and `portable.mode`; binary inspection confirms an x64 Windows GUI executable with only Windows system DLL dependencies. The first CTest execution exposed and led to correction of an invalidated-pointer test fixture. Subsequent execution is blocked by the host's enterprise signing policy for newly built unsigned executables from both Codex and a normal user terminal, and no approved code-signing certificate is installed. The corrected CTest run, GUI smoke test, and performance measurements therefore remain pending an organization-approved signing or developer-policy path; the security policy must not be weakened for validation.
+The current per-widget-window milestone compiles and links warning-clean with MSVC 19.51 through a direct compiler validation path. The logic-test executable passes, including monitor/DPI window-placement coverage. A portable Debug smoke run remained alive, used exactly one WidgetStudio process, created its clock instance, and wrote `data\config\scene.json`. Native enumeration confirmed separate `WidgetStudioHostWindow` and `WidgetStudioDesktopWidgetWindow` HWNDs. Explorer did not expose a WorkerW in the validation session, exercising the safe top-level fallback.
+
+The current CMake/Ninja validation is pending because enterprise Application Control blocks CLion's bundled `cmake.exe` and `ninja.exe`. It no longer blocks executables produced directly by the installed Microsoft compiler. The policy has not been weakened; installing Visual Studio's optional Microsoft-signed CMake tools or organization-allowing the CLion tools is the remaining build-workflow prerequisite. Windows 11 Explorer attachment, interactive UI, multi-monitor, Release packaging, and idle performance still require final validation.

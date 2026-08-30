@@ -21,7 +21,8 @@ add_executable(WidgetStudio WIN32
     src/app/WidgetStudio.rc
     src/desktop/DesktopBackendController.cpp
     src/desktop/DesktopHost.cpp
-    src/desktop/DesktopSurface.cpp
+    src/desktop/WidgetWindow.cpp
+    src/desktop/WidgetWindowPlacement.cpp
     src/layout/GridLayout.cpp
     src/layout/AuthoredContentLayout.cpp
     src/layout/Alignment.cpp
@@ -34,7 +35,7 @@ add_executable(WidgetStudio WIN32
     src/widgets/BuiltInWidgets.cpp
     src/widgets/CalendarWidget.cpp
     src/widgets/ClockWidget.cpp
-    src/widgets/DebugWidget.cpp
+    $<$<CONFIG:Debug>:src/widgets/DebugWidget.cpp>
     src/widgets/MusicWidget.cpp
     src/widgets/PhotoWidget.cpp
     src/widgets/WidgetRegistry.cpp
@@ -76,10 +77,18 @@ target_link_libraries(WidgetStudio PRIVATE
 
 install(TARGETS WidgetStudio RUNTIME DESTINATION .)
 install(FILES packaging/README.txt packaging/portable.mode DESTINATION .)
+install(CODE [[
+    file(MAKE_DIRECTORY
+        "${CMAKE_INSTALL_PREFIX}/assets"
+        "${CMAKE_INSTALL_PREFIX}/data/config"
+        "${CMAKE_INSTALL_PREFIX}/data/images"
+        "${CMAKE_INSTALL_PREFIX}/data/cache")
+]])
 
 if(BUILD_TESTING)
     add_executable(WidgetStudioLogicTests
         tests/LogicTests.cpp
+        src/desktop/WidgetWindowPlacement.cpp
         src/layout/GridLayout.cpp
         src/layout/AuthoredContentLayout.cpp
         src/layout/Alignment.cpp
