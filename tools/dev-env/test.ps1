@@ -1,17 +1,15 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$BuildPath,
-
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    [string]$BuildRoot = 'C:\WidgetStudioBuild',
+    [string]$CTestPath
 )
 
 $ErrorActionPreference = 'Stop'
-$ctest = 'C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\ctest.exe'
-if (-not (Test-Path -LiteralPath $ctest)) {
-    throw "The sandbox-local CTest executable was not found at $ctest."
-}
+. (Join-Path $PSScriptRoot 'common.ps1')
+$ctest = Resolve-Executable $CTestPath 'ctest' 'ctest.exe'
+$buildPath = Join-Path $BuildRoot $Configuration
 
-& $ctest --test-dir $BuildPath -C $Configuration --output-on-failure
+& $ctest --test-dir $buildPath --output-on-failure
 if ($LASTEXITCODE -ne 0) { throw "CTest failed with exit code $LASTEXITCODE." }

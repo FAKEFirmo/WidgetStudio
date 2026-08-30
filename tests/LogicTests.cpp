@@ -108,8 +108,14 @@ void TestMonitorMigration() {
     ws::WidgetRegistry registry = CreateRegistry();
     ws::WidgetScene scene(registry);
     ws::WidgetInstance* missing = scene.CreateWidget("test", L"REMOVED-DISPLAY");
+    Require(missing != nullptr, "missing-monitor fixture should be created");
+    const std::string missingId = missing->instanceId;
     ws::WidgetInstance* present = scene.CreateWidget("test", L"DISPLAY-PRIMARY");
-    Require(missing && present, "monitor migration fixtures should be created");
+    Require(present != nullptr, "present-monitor fixture should be created");
+    const std::string presentId = present->instanceId;
+    missing = scene.Find(missingId);
+    present = scene.Find(presentId);
+    Require(missing && present, "monitor migration fixtures should remain addressable");
     missing->grid = {20, 20, 20, 20};
     missing->free = {-20.0f, 900.0f, 2000.0f, 900.0f};
     const ws::MonitorTopology topology(std::vector<ws::MonitorDescriptor>{ws::MonitorDescriptor{

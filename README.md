@@ -13,28 +13,17 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 - A normal-window desktop backend by default and an explicitly opt-in experimental WorkerW backend with fallback and Explorer restart recovery.
 - Event-driven invalidation. No continuous idle render loop is used.
 
-## Safe build options
+## Native Windows development
 
-The preferred build path is the disposable Windows Sandbox workflow in [tools/dev-env/README.md](tools/dev-env/README.md). It installs the compiler and SDK only inside the temporary sandbox and writes results to `out\sandbox`.
+Development uses CLion, MSVC Build Tools, the Windows SDK, and CLion's bundled CMake/Ninja. Build trees and generated artifacts must remain outside the source repository, under `C:\WidgetStudioBuild` by default. Windows Sandbox, Docker, WSL, VMs, containers, global package managers, and globally installed third-party libraries are not part of the workflow.
 
-The scripts do not enable Windows Sandbox, install host tools, change PATH, or request administrator access. On a machine where Sandbox is already available:
-
-1. Double-click `tools\dev-env\WidgetStudio.wsb`.
-2. Wait for the sandbox PowerShell task to finish.
-3. Review `out\sandbox\bootstrap.log`.
-4. Find the portable release under `out\sandbox\dist\WidgetStudio`.
-
-If an MSVC x64 developer environment and CMake 3.24+ already exist on the host, the equivalent manual commands are:
+After configuring those normal native tools, run the complete command-line validation from PowerShell:
 
 ```powershell
-cmake -S . -B build -G "Visual Studio 17 2022" -A x64
-cmake --build build --config Debug
-ctest --test-dir build -C Debug --output-on-failure
-cmake --build build --config Release
-.\tools\package.ps1 -BuildPath build -OutputPath dist
+.\tools\dev-env\validate.ps1
 ```
 
-No tool should be installed system-wide solely to run those commands without the machine owner’s explicit approval.
+The script imports the MSVC x64 environment only for its own process, uses Ninja, runs logic tests, builds and packages Release, then performs GUI smoke and idle-resource checks. See [tools/dev-env/README.md](tools/dev-env/README.md) for CLion profile paths and individual commands.
 
 ## Run and controls
 
@@ -55,6 +44,7 @@ WidgetStudio starts in passive mode. Use the tray menu or `Ctrl+Alt+W` to enter 
 - `Delete`, `Ctrl+D`, and `Ctrl+L` remove, duplicate, and toggle lock.
 - Double-click the tray icon toggles Edit Mode.
 - The tray menu opens the Widget Library and Widget Studio.
+- The tray menu can opt into launch-at-login using one removable per-user Startup-folder shortcut.
 - In passive mode, only explicit widget controls accept input.
 
 ## Runtime data and removal
@@ -63,7 +53,9 @@ Normal mode writes scene data and imported assets under `%LOCALAPPDATA%\WidgetSt
 
 Imported photos are persisted as `asset://` references relative to the active data directory, so moving a complete portable release folder does not invalidate them. Existing absolute paths remain readable for compatibility.
 
-When `portable.mode` exists beside the executable—as it does in the packaged release—data is written to `portable-data` beside the executable. Delete the release folder to remove both the portable app and its data. WidgetStudio does not create services, startup entries, scheduled tasks, registry settings, or machine-wide environment variables.
+When `portable.mode` exists beside the executable—as it does in the packaged release—data is written to `portable-data` beside the executable. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
+
+Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WidgetStudio.lnk`; uncheck the same tray item to remove it. To uninstall cleanly, disable that option if used, exit WidgetStudio, and delete its folder.
 
 ## Project documentation
 

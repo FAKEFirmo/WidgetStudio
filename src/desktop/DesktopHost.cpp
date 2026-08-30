@@ -267,6 +267,13 @@ void DesktopHost::OpenWidgetStudio() {
     }
 }
 
+void DesktopHost::ToggleLaunchAtLogin() {
+    std::wstring error;
+    if (!startupShortcut_.SetEnabled(!startupShortcut_.IsEnabled(), error)) {
+        MessageBoxW(hwnd_, error.c_str(), L"Widget Studio", MB_OK | MB_ICONERROR);
+    }
+}
+
 void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
     if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
     SetEditMode(true);
@@ -708,6 +715,9 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         case TrayController::kCommandOpenStudio:
             OpenWidgetStudio();
             return 0;
+        case TrayController::kCommandToggleLaunchAtLogin:
+            ToggleLaunchAtLogin();
+            return 0;
         case TrayController::kCommandExit:
             DestroyWindow(hwnd_);
             return 0;
@@ -720,7 +730,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         switch (LOWORD(lParam)) {
         case WM_CONTEXTMENU:
         case WM_RBUTTONUP:
-            tray_.ShowContextMenu(editMode_);
+            tray_.ShowContextMenu(editMode_, startupShortcut_.IsEnabled());
             return 0;
         case WM_LBUTTONDBLCLK:
             ToggleEditMode();

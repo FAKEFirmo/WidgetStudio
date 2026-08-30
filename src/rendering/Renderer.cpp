@@ -338,12 +338,12 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
 
     if (widget.content) {
         widget.content->Render(WidgetRenderContext{
-            .renderTarget = *renderTarget_,
-            .d2dFactory = *d2dFactory_,
-            .dwriteFactory = *dwriteFactory_,
-            .wicFactory = *wicFactory_,
-            .titleFormat = *labelFormat_,
-            .detailFormat = *smallFormat_,
+            .renderTarget = *renderTarget_.Get(),
+            .d2dFactory = *d2dFactory_.Get(),
+            .dwriteFactory = *dwriteFactory_.Get(),
+            .wicFactory = *wicFactory_.Get(),
+            .titleFormat = *labelFormat_.Get(),
+            .detailFormat = *smallFormat_.Get(),
             .bounds = WidgetVisualStyle::ContentBounds(rect),
             .instanceId = widget.instanceId,
             .contentScale = widget.contentScale,

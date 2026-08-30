@@ -12,6 +12,7 @@ public:
     static constexpr UINT kCommandAddWidget = 40002;
     static constexpr UINT kCommandOpenStudio = 40003;
     static constexpr UINT kCommandExit = 40004;
+    static constexpr UINT kCommandToggleLaunchAtLogin = 40005;
 
     TrayController() = default;
     ~TrayController();
@@ -19,7 +20,7 @@ public:
     bool Initialize(HWND owner);
     void RestoreAfterExplorerRestart();
     void Shutdown() noexcept;
-    void ShowContextMenu(bool editMode);
+    void ShowContextMenu(bool editMode, bool launchAtLogin);
 
 private:
     HWND owner_{};

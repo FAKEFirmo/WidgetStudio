@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.24)
 project(WidgetStudio VERSION 1.0.0 LANGUAGES CXX RC)
 
+if(NOT MSVC)
+    message(FATAL_ERROR "WidgetStudio requires the MSVC toolchain.")
+endif()
+
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 20)
@@ -38,6 +42,7 @@ add_executable(WidgetStudio WIN32
     src/widgets/photo/PhotoLayout.cpp
     src/windows/MediaSessionService.cpp
     src/windows/MonitorTopology.cpp
+    src/windows/StartupShortcutService.cpp
 )
 
 target_include_directories(WidgetStudio PRIVATE src)
@@ -53,6 +58,8 @@ target_compile_definitions(WidgetStudio PRIVATE
 
 if(MSVC)
     target_compile_options(WidgetStudio PRIVATE /W4 /permissive- /EHsc /utf-8)
+    # WidgetStudio.rc embeds the authoritative Per-Monitor V2 application manifest.
+    target_link_options(WidgetStudio PRIVATE /MANIFEST:NO)
 endif()
 
 target_link_libraries(WidgetStudio PRIVATE

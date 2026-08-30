@@ -11,6 +11,7 @@
 #include "scene/WidgetScene.h"
 #include "widgets/WidgetRegistry.h"
 #include "windows/MonitorTopology.h"
+#include "windows/StartupShortcutService.h"
 
 #include <cstdint>
 #include <memory>
@@ -63,6 +64,7 @@ private:
     void Paint();
     void OpenWidgetLibrary();
     void OpenWidgetStudio();
+    void ToggleLaunchAtLogin();
     void CreateWidget(std::string_view typeId, bool persist = true);
     void DeleteSelectedWidgets();
     void DuplicatePrimaryWidget();
@@ -115,6 +117,7 @@ private:
     DesktopBackendController desktopBackend_{};
     std::vector<std::unique_ptr<DesktopSurface>> secondarySurfaces_;
     MonitorTopology monitorTopology_{};
+    StartupShortcutService startupShortcut_{};
     WidgetLibraryWindow library_{};
     WidgetStudioWindow studio_{};
     std::optional<DragState> drag_{};

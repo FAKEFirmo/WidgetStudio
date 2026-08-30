@@ -106,9 +106,10 @@ The underlying free-mode rectangle, drag, conversion, primary-relative alignment
 - simultaneous per-monitor desktop surfaces sharing one scene and process
 - effective-DPI/work-area enumeration and missing-monitor migration
 - Per-Monitor V2 manifest, version resource, static runtime, and portable CMake install
+- opt-in removable Startup-folder shortcut with no registry configuration
 
 ## Validation status
 
 Pure-logic coverage is present for registry lifecycle, ID generation, monitor-isolated hit testing, grid placement, authored layout selection and fitting, scene serialization and restore, atomic persistence, alignment/distribution, Clock scheduling, Calendar generation, Photo fit/fill/focal math, and asset import.
 
-The current host has no CMake/MSVC toolchain and Windows Sandbox is not installed or enabled, so the required native configure, Debug build, CTest run, GUI smoke test, Release build, and performance measurements remain unexecuted. The disposable Sandbox workflow is ready to perform those steps without modifying the host once Windows Sandbox is available; it also verifies portable scene creation and records idle CPU, memory, threads, and TCP connections in JSON reports.
+Native MSVC 19.51 configure, Debug build, and Release build now complete successfully with CLion's CMake/Ninja and all generated output under `C:\WidgetStudioBuild`. The portable install contains only `WidgetStudio.exe`, `README.txt`, and `portable.mode`; binary inspection confirms an x64 Windows GUI executable with only Windows system DLL dependencies. The first CTest execution exposed and led to correction of an invalidated-pointer test fixture. Subsequent execution is blocked by the host's enterprise signing policy for newly built unsigned executables from both Codex and a normal user terminal, and no approved code-signing certificate is installed. The corrected CTest run, GUI smoke test, and performance measurements therefore remain pending an organization-approved signing or developer-policy path; the security policy must not be weakened for validation.

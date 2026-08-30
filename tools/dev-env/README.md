@@ -1,29 +1,21 @@
-# Disposable Windows build environment
+# Native Windows development
 
-This directory defines a Windows Sandbox build path that leaves the host development environment unchanged. The repository is mounted read-only at `C:\Workspace\WidgetStudio`; only `out\sandbox` is writable from the sandbox.
+WidgetStudio uses the smallest normal Windows toolchain: CLion, MSVC Build Tools with the x64 C++ workload, and a Windows 11 SDK. CMake and Ninja come from CLion. No package manager, VM, container, subsystem, service, or globally installed library is part of this workflow.
 
-## Host prerequisite
+CLion profiles must keep their generation directory outside the repository. Use `C:\WidgetStudioBuild\clion-debug` and `C:\WidgetStudioBuild\clion-release`, select the Visual Studio/MSVC toolchain (not CLion's bundled MinGW toolchain), and use the Ninja generator.
 
-Windows Sandbox must already be available. These scripts do not enable the Windows feature and do not request administrator rights on the host. On the current machine `WindowsSandbox.exe` was not found, so the workflow has not yet been executed.
+For command-line validation from an ordinary PowerShell prompt:
 
-If you choose to enable Windows Sandbox later, do that explicitly through Windows Features and restart when Windows requests it. That is a host-level change and is intentionally outside these scripts.
+```powershell
+.\tools\dev-env\validate.ps1
+```
 
-## Run
+The scripts locate Visual Studio through `vswhere`, import its x64 environment into the script process only, and locate CLion's bundled CMake/Ninja. They never modify the machine PATH. Explicit `-CMakePath`, `-NinjaPath`, and `-VsDevCmdPath` arguments are available for nonstandard installations.
 
-1. Ensure `out\sandbox` exists; it is included in the repository.
-2. Double-click `tools\dev-env\WidgetStudio.wsb`.
-3. Wait for the PowerShell window inside the sandbox to finish.
-4. Read `out\sandbox\bootstrap.log`, `smoke-report.json`, and `performance-report.json` on the host.
-5. Find Debug artifacts under `out\sandbox\Debug`, Release artifacts under `out\sandbox\Release`, and the portable package under `out\sandbox\dist\WidgetStudio`.
+Outputs are isolated under `C:\WidgetStudioBuild` by default:
 
-The sandbox downloads the official Visual Studio 2022 Build Tools bootstrapper from Microsoft and installs the C++ workload only inside the disposable VM. It configures with the Visual Studio 2022 x64 generator, builds Debug, runs CTest, builds Release, creates the portable package, verifies that the packaged app creates a window and remains alive, then samples warm-idle CPU, memory, thread count, and TCP connections. Reports and application artifacts are copied to the mapped output directory.
+- `Debug` and `Release`: independent Ninja build trees
+- `dist\WidgetStudio`: portable release
+- `reports`: GUI smoke and warm-idle performance reports
 
-## Cleanup
-
-Close Windows Sandbox to erase the compiler, SDK, CMake, downloads, build directory, registry entries, and all other sandbox-local state. Delete the contents of `out\sandbox` to remove copied logs and artifacts from the host.
-
-No host PATH, environment variable, service, startup entry, package manager, or development registry setting is changed by this workflow.
-
-## Repository relocation
-
-`WidgetStudio.wsb` contains the current absolute repository path because `.wsb` files do not reliably expand environment variables in mapped-folder declarations. If the repository moves, update both `<HostFolder>` entries before launching it.
+Use `-SkipRuntime` only when GUI execution is unavailable. Deleting `C:\WidgetStudioBuild` removes all generated output; no build file is written into the source repository.

@@ -112,12 +112,14 @@ Keep widget control hit testing separate from drag initiation so pressing Play c
 - Add comments for non-obvious Windows behavior, not for straightforward C++.
 
 ## Build and validation
-CLion is the primary IDE. Use its Visual Studio/MSVC toolchain on Windows and CMake profiles.
+CLion is the primary IDE. Use its MSVC Build Tools toolchain, bundled CMake/Ninja, and a Windows 11 SDK. Do not introduce Windows Sandbox, Docker, WSL, a VM, a container, or a globally installed package manager/library for development.
+
+All generated output must remain outside the source repository, preferably under `C:\WidgetStudioBuild`. CLion CMake profiles must use an external generation directory.
 
 The command-line validation path is:
 
-`cmake -S . -B build -G "Visual Studio 17 2022" -A x64`
-`cmake --build build --config Debug`
+`.\tools\dev-env\build.ps1 -Configuration Debug`
+`.\tools\dev-env\test.ps1 -Configuration Debug`
 
 Before declaring a coding task complete:
 1. Configure successfully.

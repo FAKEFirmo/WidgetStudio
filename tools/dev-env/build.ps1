@@ -1,38 +1,27 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$SourcePath,
-
-    [Parameter(Mandatory = $true)]
-    [string]$BuildPath,
-
-    [Parameter(Mandatory = $true)]
-    [string]$OutputPath,
-
     [ValidateSet('Debug', 'Release')]
-    [string]$Configuration = 'Debug'
+    [string]$Configuration = 'Debug',
+    [string]$BuildRoot = 'C:\WidgetStudioBuild',
+    [string]$CMakePath,
+    [string]$NinjaPath,
+    [string]$VsDevCmdPath
 )
 
 $ErrorActionPreference = 'Stop'
-$cmake = 'C:\BuildTools\Common7\IDE\CommonExtensions\Microsoft\CMake\CMake\bin\cmake.exe'
-if (-not (Test-Path -LiteralPath $cmake)) {
-    throw "The sandbox-local CMake executable was not found at $cmake."
-}
+. (Join-Path $PSScriptRoot 'common.ps1')
 
-New-Item -ItemType Directory -Force -Path $BuildPath, $OutputPath | Out-Null
+$sourcePath = (Resolve-Path (Join-Path $PSScriptRoot '..\..')).Path
+$buildPath = Join-Path $BuildRoot $Configuration
+Assert-OutOfTreeBuildPath $sourcePath $buildPath
+Import-MsvcEnvironment $VsDevCmdPath
+$cmake = Resolve-Executable $CMakePath 'cmake' 'cmake.exe'
+$ninja = Resolve-Executable $NinjaPath 'ninja' 'ninja.exe'
 
-& $cmake -S $SourcePath -B $BuildPath -G 'Visual Studio 17 2022' -A x64
+New-Item -ItemType Directory -Force -Path $buildPath | Out-Null
+& $cmake -S $sourcePath -B $buildPath -G Ninja "-DCMAKE_BUILD_TYPE=$Configuration" "-DCMAKE_MAKE_PROGRAM=$ninja"
 if ($LASTEXITCODE -ne 0) { throw "CMake configure failed with exit code $LASTEXITCODE." }
 
-& $cmake --build $BuildPath --config $Configuration
+& $cmake --build $buildPath
 if ($LASTEXITCODE -ne 0) { throw "CMake build failed with exit code $LASTEXITCODE." }
-
-$binaryDirectory = Join-Path $BuildPath $Configuration
-$artifactDirectory = Join-Path $OutputPath $Configuration
-New-Item -ItemType Directory -Force -Path $artifactDirectory | Out-Null
-Copy-Item -LiteralPath (Join-Path $binaryDirectory 'WidgetStudio.exe') -Destination $artifactDirectory -Force
-
-$pdb = Join-Path $binaryDirectory 'WidgetStudio.pdb'
-if (Test-Path -LiteralPath $pdb) {
-    Copy-Item -LiteralPath $pdb -Destination $artifactDirectory -Force
-}
+Write-Host "$Configuration build completed at $buildPath"

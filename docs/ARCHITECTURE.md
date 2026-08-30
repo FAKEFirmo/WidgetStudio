@@ -124,3 +124,7 @@ New imports persist as validated `asset://filename` references. The composition 
 ## Delivery boundary
 
 The Release target statically links the MSVC runtime and installs only `WidgetStudio.exe`, a runtime README, and the `portable.mode` marker. No compiler, SDK, service, registry entry, updater, or runtime package manager is part of the application release.
+
+WidgetStudio is the sole widget host and keeps every desktop surface, widget, integration, and management window in its single guarded process. Portable mode redirects runtime state and imported assets to `portable-data` within the release folder. Optional launch-at-login uses one per-user `WidgetStudio.lnk` in the Windows Startup folder, managed from the tray and removable without registry access. Normal removal is: disable launch-at-login if enabled, exit the process, and delete the release folder.
+
+Development builds are equally isolated from the repository: CLion or the native PowerShell workflow generates Ninja trees under `C:\WidgetStudioBuild`. No VM, container, subsystem, package manager, or second runtime environment participates in building or running the application.

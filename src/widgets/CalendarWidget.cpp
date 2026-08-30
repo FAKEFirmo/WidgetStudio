@@ -44,7 +44,8 @@ std::chrono::system_clock::time_point FileTimeToSystemClock(FILETIME fileTime) n
     const unsigned long long unixTicks = ticks.QuadPart - windowsToUnixEpoch;
     const auto seconds = static_cast<std::time_t>(unixTicks / 10000000ULL);
     const auto remainder = std::chrono::nanoseconds((unixTicks % 10000000ULL) * 100ULL);
-    return std::chrono::system_clock::from_time_t(seconds) + remainder;
+    return std::chrono::system_clock::from_time_t(seconds) +
+        std::chrono::duration_cast<std::chrono::system_clock::duration>(remainder);
 }
 
 } // namespace

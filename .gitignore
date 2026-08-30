@@ -3,10 +3,7 @@
 /.idea/
 /.vs/
 /dist/
-/out/*
-!/out/sandbox/
-out/sandbox/*
-!/out/sandbox/.gitkeep
+/out/
 *.user
 *.suo
 *.VC.db
