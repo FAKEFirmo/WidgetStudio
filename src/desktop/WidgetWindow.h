@@ -26,8 +26,9 @@ public:
     void Close() noexcept;
     bool UpdatePlacement(const MonitorDescriptor& monitor);
     void SetEditMode(bool enabled);
-    void Invalidate(bool reloadWallpaper = false);
+    void Invalidate();
     void Reattach();
+    void SetZOrderAfter(HWND insertAfter);
 
     [[nodiscard]] HWND Window() const noexcept { return hwnd_; }
     [[nodiscard]] UINT Dpi() const noexcept { return dpi_; }
@@ -57,6 +58,8 @@ private:
     RectF widgetBounds_{};
     RectF windowBounds_{};
     RectF widgetBoundsInWindow_{};
+    RectF wallpaperBounds_{};
+    SizeF wallpaperDesktopSize_{};
     SizeF monitorSize_{};
     Renderer renderer_{};
     DesktopBackendController backend_{};

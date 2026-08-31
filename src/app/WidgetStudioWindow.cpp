@@ -1,11 +1,15 @@
 #include "app/WidgetStudioWindow.h"
 
+#include "layout/OuterLayout.h"
+#include "rendering/RenderingResources.h"
+
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cwchar>
 #include <shobjidl.h>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 #include <windowsx.h>
@@ -37,16 +41,22 @@ HWND AddControl(HWND parent, HINSTANCE instance, const wchar_t* type, const wcha
 
 void SetNumber(HWND control, double value) {
     wchar_t text[48]{};
-    _snwprintf_s(text, _countof(text), _TRUNCATE, L"%.4g", value);
+    _snwprintf_s(text, _countof(text), _TRUNCATE, L"%.10g", value);
     SetWindowTextW(control, text);
+}
+
+double ParseNumber(std::wstring_view text, double fallback) {
+    if (text.empty()) return fallback;
+    std::wstring terminated(text);
+    wchar_t* end = nullptr;
+    const double value = std::wcstod(terminated.c_str(), &end);
+    return end != terminated.c_str() && *end == L'\0' && std::isfinite(value) ? value : fallback;
 }
 
 double ReadNumber(HWND control, double fallback) {
     wchar_t text[64]{};
     GetWindowTextW(control, text, static_cast<int>(std::size(text)));
-    wchar_t* end = nullptr;
-    const double value = std::wcstod(text, &end);
-    return end != text && *end == L'\0' && std::isfinite(value) ? value : fallback;
+    return ParseNumber(text, fallback);
 }
 
 std::wstring ReadText(HWND control) {
@@ -64,15 +74,26 @@ WidgetStudioWindow::~WidgetStudioWindow() { Close(); }
 
 bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene, GridLayout& grid,
     GridMetrics layoutMetrics, RectF layoutBounds, std::filesystem::path assetDirectory,
-    std::wstring monitorId, std::function<void()> sceneChanged,
+    std::wstring monitorId, std::vector<MonitorDescriptor> monitors,
+    std::shared_ptr<WallpaperCache> wallpaperCache,
+    std::shared_ptr<RenderingResources> renderingResources,
+    std::function<void()> sceneChanged,
     std::function<void()> selectionChanged, std::function<void()> openLibrary) {
-    if (hwnd_) { ShowWindow(hwnd_, SW_SHOWNORMAL); SetForegroundWindow(hwnd_); Refresh(); return true; }
+    if (hwnd_) {
+        UpdateLayoutContext(layoutMetrics, layoutBounds, std::move(monitorId));
+        UpdateMonitors(std::move(monitors));
+        ShowWindow(hwnd_, SW_SHOWNORMAL);
+        SetForegroundWindow(hwnd_);
+        Refresh();
+        return true;
+    }
     instance_ = instance;
     scene_ = &scene;
     grid_ = &grid;
     layoutMetrics_ = layoutMetrics;
     layoutBounds_ = layoutBounds;
     monitorId_ = std::move(monitorId);
+    monitors_ = std::move(monitors);
     assetLibrary_ = std::make_unique<AssetLibrary>(std::move(assetDirectory));
     sceneChanged_ = std::move(sceneChanged);
     selectionChanged_ = std::move(selectionChanged);
@@ -95,11 +116,14 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     studioClass.lpszClassName = kStudioClass;
     if (!RegisterClassExW(&studioClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
+    const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
     hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, L"Widget Studio",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT, 1120, 820,
+        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+        static_cast<int>(1120.0f * initialScale), static_cast<int>(820.0f * initialScale),
         owner, nullptr, instance_, this);
     if (!hwnd_ || !preview_) { Close(); return false; }
-    previewRenderer_ = std::make_unique<Renderer>();
+    previewRenderer_ = std::make_unique<Renderer>(
+        std::move(wallpaperCache), std::move(renderingResources));
     if (FAILED(previewRenderer_->Initialize(preview_))) { Close(); return false; }
     UpdatePreviewMetrics();
     UpdateControlsFromSelection();
@@ -113,7 +137,33 @@ void WidgetStudioWindow::Close() noexcept {
     previewRenderer_.reset();
     assetLibrary_.reset();
     hwnd_ = nullptr;
+    ResetControlHandles();
+}
+
+void WidgetStudioWindow::ResetControlHandles() noexcept {
     preview_ = nullptr;
+    monitorChoice_ = nullptr;
+    layoutMode_ = nullptr;
+    locked_ = nullptr;
+    contentScale_ = nullptr;
+    appearanceMode_ = nullptr;
+    glass_ = nullptr;
+    opacity_ = nullptr;
+    blur_ = nullptr;
+    radius_ = nullptr;
+    positionA_ = nullptr;
+    positionB_ = nullptr;
+    sizeA_ = nullptr;
+    sizeB_ = nullptr;
+    duplicate_ = nullptr;
+    alignment_ = nullptr;
+    widgetSetting_ = nullptr;
+    widgetValue_ = nullptr;
+    widgetChoice_ = nullptr;
+    widgetCheck_ = nullptr;
+    browse_ = nullptr;
+    applyWidget_ = nullptr;
+    previewDrag_.reset();
 }
 
 void WidgetStudioWindow::Refresh() {
@@ -135,6 +185,17 @@ void WidgetStudioWindow::UpdateLayoutContext(
     monitorId_ = std::move(monitorId);
     UpdatePreviewMetrics();
     if (preview_) InvalidateRect(preview_, nullptr, FALSE);
+}
+
+void WidgetStudioWindow::UpdateMonitors(std::vector<MonitorDescriptor> monitors) {
+    monitors_ = std::move(monitors);
+    if (!monitorChoice_) return;
+    SendMessageW(monitorChoice_, CB_RESETCONTENT, 0, 0);
+    for (const MonitorDescriptor& monitor : monitors_) {
+        const std::wstring label = monitor.id + (monitor.primary ? L" (Primary)" : L"");
+        SendMessageW(monitorChoice_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+    }
+    UpdateControlsFromSelection();
 }
 
 LRESULT CALLBACK WidgetStudioWindow::WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {
@@ -160,6 +221,13 @@ LRESULT CALLBACK WidgetStudioWindow::PreviewProc(HWND hwnd, UINT message, WPARAM
 bool WidgetStudioWindow::CreateControls() {
     preview_ = CreateWindowExW(WS_EX_CLIENTEDGE, kPreviewClass, nullptr, WS_CHILD | WS_VISIBLE,
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
+    AddControl(hwnd_, instance_, L"STATIC", L"Monitor", 0);
+    monitorChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP);
+    for (const MonitorDescriptor& monitor : monitors_) {
+        const std::wstring label = monitor.id + (monitor.primary ? L" (Primary)" : L"");
+        SendMessageW(monitorChoice_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
+    }
     AddControl(hwnd_, instance_, L"STATIC", L"Layout", 0);
     layoutMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
     SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Grid"));
@@ -188,7 +256,7 @@ bool WidgetStudioWindow::CreateControls() {
     sizeB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"BUTTON", L"Apply universal settings", BS_PUSHBUTTON | WS_TABSTOP, kApplyUniversal);
     AddControl(hwnd_, instance_, L"BUTTON", L"Add widget...", BS_PUSHBUTTON | WS_TABSTOP, kOpenLibrary);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Duplicate", BS_PUSHBUTTON | WS_TABSTOP, kDuplicateWidget);
+    duplicate_ = AddControl(hwnd_, instance_, L"BUTTON", L"Duplicate", BS_PUSHBUTTON | WS_TABSTOP, kDuplicateWidget);
     AddControl(hwnd_, instance_, L"BUTTON", L"Remove", BS_PUSHBUTTON | WS_TABSTOP, kDeleteWidget);
     alignment_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
     for (const wchar_t* item : {L"Align left", L"Horizontal center", L"Align right", L"Align top",
@@ -207,8 +275,11 @@ bool WidgetStudioWindow::CreateControls() {
     ShowWindow(widgetCheck_, SW_HIDE);
     browse_ = AddControl(hwnd_, instance_, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP, kBrowse);
     ShowWindow(browse_, SW_HIDE);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Apply widget setting", BS_PUSHBUTTON | WS_TABSTOP, kApplyWidget);
-    return preview_ && layoutMode_ && locked_ && contentScale_ && widgetSetting_ && widgetValue_;
+    applyWidget_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply widget setting", BS_PUSHBUTTON | WS_TABSTOP, kApplyWidget);
+    return preview_ && monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
+        appearanceMode_ && glass_ && opacity_ && blur_ && radius_ &&
+        positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ &&
+        widgetSetting_ && widgetValue_ && widgetChoice_ && widgetCheck_ && browse_ && applyWidget_;
 }
 
 void WidgetStudioWindow::LayoutControls(int width, int height) {
@@ -299,13 +370,49 @@ WidgetInstance* WidgetStudioWindow::PrimaryWidget() noexcept {
 
 void WidgetStudioWindow::UpdateControlsFromSelection() {
     WidgetInstance* widget = PrimaryWidget();
-    EnableWindow(layoutMode_, widget != nullptr);
+    const std::size_t activeSelectionCount = scene_ ? static_cast<std::size_t>(std::count_if(
+        scene_->Widgets().begin(), scene_->Widgets().end(), [this](const WidgetInstance& item) {
+            return item.selected && item.monitorId == monitorId_;
+        })) : 0;
+    const bool single = activeSelectionCount == 1;
+    const WidgetDescriptor* descriptor = widget ? scene_->DescriptorFor(widget->instanceId) : nullptr;
+    const bool scalable = descriptor && HasCapability(descriptor->capabilities, WidgetCapability::Scalable);
+    const bool resizable = descriptor && HasCapability(descriptor->capabilities, WidgetCapability::Resizable);
+    const bool duplicatable = descriptor && HasCapability(descriptor->capabilities, WidgetCapability::Duplicatable);
+    const bool configurable = descriptor && HasCapability(descriptor->capabilities, WidgetCapability::Configurable);
+    const bool hasWidget = widget != nullptr;
+    const std::size_t freeSelectionCount = scene_ ? static_cast<std::size_t>(std::count_if(
+        scene_->Widgets().begin(), scene_->Widgets().end(), [this](const WidgetInstance& item) {
+            return item.selected && item.monitorId == monitorId_ && item.layoutMode == LayoutMode::Free;
+        })) : 0;
+    EnableWindow(monitorChoice_, widget != nullptr && !monitors_.empty());
+    EnableWindow(layoutMode_, hasWidget);
+    EnableWindow(locked_, hasWidget);
+    EnableWindow(contentScale_, scalable);
+    EnableWindow(appearanceMode_, hasWidget);
+    EnableWindow(glass_, hasWidget);
+    EnableWindow(opacity_, hasWidget);
+    EnableWindow(blur_, hasWidget);
+    EnableWindow(radius_, hasWidget);
+    EnableWindow(positionA_, single);
+    EnableWindow(positionB_, single);
+    EnableWindow(sizeA_, single && resizable);
+    EnableWindow(sizeB_, single && resizable);
+    EnableWindow(duplicate_, duplicatable);
+    EnableWindow(alignment_, freeSelectionCount >= 2);
+    EnableWindow(widgetSetting_, configurable);
+    EnableWindow(applyWidget_, configurable);
     if (!widget) {
         SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
         ShowWindow(widgetValue_, SW_HIDE); ShowWindow(widgetChoice_, SW_HIDE);
         ShowWindow(widgetCheck_, SW_HIDE); ShowWindow(browse_, SW_HIDE);
         return;
     }
+    const auto monitor = std::find_if(monitors_.begin(), monitors_.end(), [widget](const MonitorDescriptor& item) {
+        return item.id == widget->monitorId;
+    });
+    SendMessageW(monitorChoice_, CB_SETCURSEL,
+        monitor == monitors_.end() ? CB_ERR : static_cast<WPARAM>(std::distance(monitors_.begin(), monitor)), 0);
     SendMessageW(layoutMode_, CB_SETCURSEL, widget->layoutMode == LayoutMode::Grid ? 0 : 1, 0);
     SendMessageW(locked_, BM_SETCHECK, widget->locked ? BST_CHECKED : BST_UNCHECKED, 0);
     SetNumber(contentScale_, widget->contentScale);
@@ -375,36 +482,82 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
             return widget.selected && widget.monitorId == monitorId_;
         }));
     const bool single = activeSelectionCount == 1;
+    const LRESULT monitorSelection = SendMessageW(monitorChoice_, CB_GETCURSEL, 0, 0);
+    const MonitorDescriptor* destination = monitorSelection != CB_ERR &&
+        static_cast<std::size_t>(monitorSelection) < monitors_.size()
+        ? &monitors_[static_cast<std::size_t>(monitorSelection)] : nullptr;
+    const RectF destinationBounds = destination ? destination->workAreaDips : layoutBounds_;
     for (auto& widget : scene_->Widgets()) {
         if (!widget.selected || widget.monitorId != monitorId_) continue;
+        const WidgetDescriptor* descriptor = scene_->DescriptorFor(widget.instanceId);
+        const WidgetCapability capabilities = descriptor
+            ? descriptor->capabilities : WidgetCapability::None;
         scene_->SetWidgetLayoutMode(widget.instanceId, mode, *grid_, layoutMetrics_);
+        if (destination) widget.monitorId = destination->id;
         widget.locked = SendMessageW(locked_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        widget.contentScale = std::clamp(static_cast<float>(ReadNumber(contentScale_, widget.contentScale)), 0.25f, 4.0f);
+        if (HasCapability(capabilities, WidgetCapability::Scalable)) {
+            widget.contentScale = std::clamp(
+                static_cast<float>(ReadNumber(contentScale_, widget.contentScale)), 0.25f, 4.0f);
+        }
         widget.appearance.mode = SendMessageW(appearanceMode_, CB_GETCURSEL, 0, 0) == 1
             ? AppearanceMode::Light : AppearanceMode::Dark;
         widget.appearance.glassEnabled = SendMessageW(glass_, BM_GETCHECK, 0, 0) == BST_CHECKED;
         widget.appearance.opacity = std::clamp(static_cast<float>(ReadNumber(opacity_, widget.appearance.opacity)), 0.0f, 1.0f);
         widget.appearance.blurRadius = std::clamp(static_cast<float>(ReadNumber(blur_, widget.appearance.blurRadius)), 0.0f, 128.0f);
         widget.appearance.cornerRadius = std::clamp(static_cast<float>(ReadNumber(radius_, widget.appearance.cornerRadius)), 0.0f, 128.0f);
-        if (single && widget.layoutMode == LayoutMode::Grid) {
-            widget.grid.columnSpan = std::clamp(static_cast<int>(ReadNumber(sizeA_, widget.grid.columnSpan)),
-                1, grid_->Columns());
-            widget.grid.rowSpan = std::clamp(static_cast<int>(ReadNumber(sizeB_, widget.grid.rowSpan)),
-                1, grid_->Rows());
+        if (widget.layoutMode == LayoutMode::Grid && single) {
+            const int minimumColumns = descriptor
+                ? std::min(grid_->Columns(), descriptor->minimumGridSize.columns) : 1;
+            const int minimumRows = descriptor
+                ? std::min(grid_->Rows(), descriptor->minimumGridSize.rows) : 1;
+            const int maximumColumns = descriptor
+                ? std::max(minimumColumns,
+                    std::min(grid_->Columns(), descriptor->maximumGridSize.columns))
+                : grid_->Columns();
+            const int maximumRows = descriptor
+                ? std::max(minimumRows,
+                    std::min(grid_->Rows(), descriptor->maximumGridSize.rows))
+                : grid_->Rows();
+            if (HasCapability(capabilities, WidgetCapability::Resizable)) {
+                widget.grid.columnSpan = std::clamp(
+                    static_cast<int>(ReadNumber(sizeA_, widget.grid.columnSpan)),
+                    minimumColumns, maximumColumns);
+                widget.grid.rowSpan = std::clamp(
+                    static_cast<int>(ReadNumber(sizeB_, widget.grid.rowSpan)),
+                    minimumRows, maximumRows);
+            }
             widget.grid.column = std::clamp(static_cast<int>(ReadNumber(positionA_, widget.grid.column)),
                 0, grid_->Columns() - widget.grid.columnSpan);
             widget.grid.row = std::clamp(static_cast<int>(ReadNumber(positionB_, widget.grid.row)),
                 0, grid_->Rows() - widget.grid.rowSpan);
-        } else if (single) {
-            widget.free.width = std::clamp(static_cast<float>(ReadNumber(sizeA_, widget.free.width)),
-                1.0f, std::max(1.0f, layoutBounds_.width));
-            widget.free.height = std::clamp(static_cast<float>(ReadNumber(sizeB_, widget.free.height)),
-                1.0f, std::max(1.0f, layoutBounds_.height));
-            widget.free.x = std::clamp(static_cast<float>(ReadNumber(positionA_, widget.free.x)),
-                layoutBounds_.x, layoutBounds_.x + layoutBounds_.width - widget.free.width);
-            widget.free.y = std::clamp(static_cast<float>(ReadNumber(positionB_, widget.free.y)),
-                layoutBounds_.y, layoutBounds_.y + layoutBounds_.height - widget.free.height);
+        } else if (widget.layoutMode == LayoutMode::Free) {
+            if (single && HasCapability(capabilities, WidgetCapability::Resizable)) {
+                widget.free.width = std::clamp(
+                    static_cast<float>(ReadNumber(sizeA_, widget.free.width)),
+                    1.0f, std::max(1.0f, destinationBounds.width));
+                widget.free.height = std::clamp(
+                    static_cast<float>(ReadNumber(sizeB_, widget.free.height)),
+                    1.0f, std::max(1.0f, destinationBounds.height));
+            }
+            widget.free.width = std::clamp(
+                widget.free.width, 1.0f, std::max(1.0f, destinationBounds.width));
+            widget.free.height = std::clamp(
+                widget.free.height, 1.0f, std::max(1.0f, destinationBounds.height));
+            const float requestedX = single
+                ? static_cast<float>(ReadNumber(positionA_, widget.free.x)) : widget.free.x;
+            const float requestedY = single
+                ? static_cast<float>(ReadNumber(positionB_, widget.free.y)) : widget.free.y;
+            widget.free.x = std::clamp(requestedX,
+                destinationBounds.x, destinationBounds.x + destinationBounds.width - widget.free.width);
+            widget.free.y = std::clamp(requestedY,
+                destinationBounds.y, destinationBounds.y + destinationBounds.height - widget.free.height);
         }
+    }
+    if (destination) {
+        monitorId_ = destination->id;
+        layoutBounds_ = destination->workAreaDips;
+        layoutMetrics_ = grid_->Calculate({layoutBounds_.width, layoutBounds_.height});
+        UpdatePreviewMetrics();
     }
     NotifySceneChanged();
 }
@@ -431,6 +584,21 @@ void WidgetStudioWindow::ApplyWidgetSetting() {
         const LRESULT choice = SendMessageW(widgetChoice_, CB_GETCURSEL, 0, 0);
         if (choice == CB_ERR || static_cast<std::size_t>(choice) >= definition.choices.size()) return;
         value = definition.choices[static_cast<std::size_t>(choice)];
+    } else if (definition.kind == WidgetSettingKind::Number) {
+        const auto current = state.find(definition.key);
+        const double fallback = current == state.end()
+            ? definition.minimum : ParseNumber(current->second, definition.minimum);
+        double number = ReadNumber(widgetValue_, fallback);
+        if (definition.maximum >= definition.minimum) {
+            number = std::clamp(number, definition.minimum, definition.maximum);
+            if (definition.step > 0.0 && std::isfinite(definition.step)) {
+                number = definition.minimum + std::round(
+                    (number - definition.minimum) / definition.step) * definition.step;
+                number = std::clamp(number, definition.minimum, definition.maximum);
+            }
+        }
+        SetNumber(widgetValue_, number);
+        value = ReadText(widgetValue_);
     } else {
         value = ReadText(widgetValue_);
     }
@@ -464,6 +632,38 @@ void WidgetStudioWindow::NotifySceneChanged() {
     if (sceneChanged_) sceneChanged_();
     UpdateControlsFromSelection();
     InvalidateRect(preview_, nullptr, FALSE);
+}
+
+void WidgetStudioWindow::EndPreviewDrag() {
+    if (!previewDrag_) return;
+    const bool moved = previewDrag_->moved;
+    previewDrag_.reset();
+    if (GetCapture() == preview_) ReleaseCapture();
+    if (moved) NotifySceneChanged();
+}
+
+bool WidgetStudioWindow::HandleEditKey(WPARAM key) {
+    if (key == VK_DELETE) {
+        EndPreviewDrag();
+        if (scene_->RemoveSelectedWidgets() > 0) NotifySceneChanged();
+        return true;
+    }
+    if ((GetKeyState(VK_CONTROL) & 0x8000) == 0) return false;
+    const auto primary = scene_->PrimarySelection();
+    if (key == 'D') {
+        EndPreviewDrag();
+        if (primary && scene_->DuplicateWidget(*primary)) NotifySceneChanged();
+        return true;
+    }
+    if (key == 'L') {
+        EndPreviewDrag();
+        WidgetInstance* widget = primary ? scene_->Find(*primary) : nullptr;
+        if (widget && scene_->SetWidgetLocked(widget->instanceId, !widget->locked)) {
+            NotifySceneChanged();
+        }
+        return true;
+    }
+    return false;
 }
 
 LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
@@ -508,22 +708,18 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         }
         break;
     case WM_KEYDOWN:
-        if (wParam == VK_DELETE) {
-            if (scene_->RemoveSelectedWidgets() > 0) NotifySceneChanged();
-            return 0;
-        }
-        if (wParam == 'D' && (GetKeyState(VK_CONTROL) & 0x8000) != 0) {
-            const auto primary = scene_->PrimarySelection();
-            if (primary && scene_->DuplicateWidget(*primary)) NotifySceneChanged();
-            return 0;
-        }
+        if (HandleEditKey(wParam)) return 0;
         break;
     case WM_CLOSE: DestroyWindow(hwnd_); return 0;
-    case WM_NCDESTROY:
+    case WM_NCDESTROY: {
+        const HWND destroyedWindow = hwnd_;
         previewRenderer_.reset();
-        SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
-        hwnd_ = nullptr; preview_ = nullptr;
-        return 0;
+        assetLibrary_.reset();
+        SetWindowLongPtrW(destroyedWindow, GWLP_USERDATA, 0);
+        hwnd_ = nullptr;
+        ResetControlHandles();
+        return DefWindowProcW(destroyedWindow, message, wParam, lParam);
+    }
     default: break;
     }
     return DefWindowProcW(hwnd_, message, wParam, lParam);
@@ -546,11 +742,69 @@ LRESULT WidgetStudioWindow::HandlePreviewMessage(UINT message, WPARAM wParam, LP
         const auto hit = scene_->HitTest(point, *grid_, previewMetrics_, monitorId_);
         if (hit) scene_->Select(*hit, (GetKeyState(VK_SHIFT) & 0x8000) != 0);
         else scene_->ClearSelection();
+        const WidgetInstance* selected = hit ? scene_->Find(*hit) : nullptr;
+        if (selected && selected->selected && !selected->locked) {
+            const RectF rect = OuterLayout::RectFor(*selected, *grid_, previewMetrics_);
+            previewDrag_ = PreviewDragState{
+                .widgetId = selected->instanceId,
+                .offset = {point.x - rect.x, point.y - rect.y},
+            };
+            SetCapture(preview_);
+            SetFocus(preview_);
+        }
         UpdateControlsFromSelection();
         InvalidateRect(preview_, nullptr, FALSE);
         if (selectionChanged_) selectionChanged_();
         return 0;
     }
+    case WM_MOUSEMOVE:
+        if (previewDrag_ && (wParam & MK_LBUTTON) != 0) {
+            const float scale = 96.0f / static_cast<float>(std::max(96u, GetDpiForWindow(preview_)));
+            const PointF point{
+                (static_cast<float>(GET_X_LPARAM(lParam)) * scale - previewOffset_.x) / previewScale_,
+                (static_cast<float>(GET_Y_LPARAM(lParam)) * scale - previewOffset_.y) / previewScale_,
+            };
+            WidgetInstance* widget = scene_->Find(previewDrag_->widgetId);
+            if (!widget || widget->locked) {
+                EndPreviewDrag();
+                return 0;
+            }
+            if (widget->layoutMode == LayoutMode::Grid) {
+                const GridPlacement moved = grid_->MoveToPoint(
+                    widget->grid, point, previewDrag_->offset, previewMetrics_);
+                if (moved.column != widget->grid.column || moved.row != widget->grid.row) {
+                    widget->grid = moved;
+                    previewDrag_->moved = true;
+                }
+            } else {
+                const FreePlacement moved = OuterLayout::MoveFreeToPoint(
+                    widget->free, point, previewDrag_->offset, layoutBounds_);
+                if (moved.x != widget->free.x || moved.y != widget->free.y) {
+                    widget->free = moved;
+                    previewDrag_->moved = true;
+                }
+            }
+            if (previewDrag_->moved) {
+                InvalidateRect(preview_, nullptr, FALSE);
+                if (selectionChanged_) selectionChanged_();
+            }
+            return 0;
+        }
+        if (previewDrag_) EndPreviewDrag();
+        return 0;
+    case WM_LBUTTONUP:
+        EndPreviewDrag();
+        return 0;
+    case WM_KEYDOWN:
+        if (HandleEditKey(wParam)) return 0;
+        break;
+    case WM_CAPTURECHANGED:
+        if (previewDrag_) {
+            const bool moved = previewDrag_->moved;
+            previewDrag_.reset();
+            if (moved) NotifySceneChanged();
+        }
+        return 0;
     default: break;
     }
     return DefWindowProcW(preview_, message, wParam, lParam);

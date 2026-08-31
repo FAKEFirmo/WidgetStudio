@@ -32,6 +32,10 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM context) {
         .pixelY = info.rcWork.top,
         .pixelWidth = info.rcWork.right - info.rcWork.left,
         .pixelHeight = info.rcWork.bottom - info.rcWork.top,
+        .monitorPixelX = info.rcMonitor.left,
+        .monitorPixelY = info.rcMonitor.top,
+        .monitorPixelWidth = info.rcMonitor.right - info.rcMonitor.left,
+        .monitorPixelHeight = info.rcMonitor.bottom - info.rcMonitor.top,
         .dpi = dpiX,
         .primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
     });
@@ -61,14 +65,21 @@ const MonitorDescriptor* MonitorTopology::Primary() const noexcept {
     return monitors_.empty() ? nullptr : &monitors_.front();
 }
 
-std::size_t MonitorTopology::MigrateMissingWidgets(
+std::size_t MonitorTopology::ReconcileWidgets(
     WidgetScene& scene, int gridColumns, int gridRows) const {
-    const MonitorDescriptor* destination = Primary();
-    if (!destination) return 0;
-    std::size_t migrated = 0;
+    const MonitorDescriptor* primary = Primary();
+    if (!primary) return 0;
+    std::size_t changed = 0;
     for (WidgetInstance& widget : scene.Widgets()) {
-        if (Find(widget.monitorId)) continue;
-        widget.monitorId = destination->id;
+        const MonitorDescriptor* destination = Find(widget.monitorId);
+        bool widgetChanged = false;
+        if (!destination) {
+            destination = primary;
+            widget.monitorId = destination->id;
+            widgetChanged = true;
+        }
+        const GridPlacement oldGrid = widget.grid;
+        const FreePlacement oldFree = widget.free;
         widget.grid.columnSpan = std::clamp(widget.grid.columnSpan, 1, std::max(1, gridColumns));
         widget.grid.rowSpan = std::clamp(widget.grid.rowSpan, 1, std::max(1, gridRows));
         widget.grid.column = std::clamp(widget.grid.column, 0,
@@ -83,9 +94,14 @@ std::size_t MonitorTopology::MigrateMissingWidgets(
             destination->workAreaDips.width - widget.free.width);
         widget.free.y = std::clamp(widget.free.y, 0.0f,
             destination->workAreaDips.height - widget.free.height);
-        ++migrated;
+        widgetChanged = widgetChanged ||
+            widget.grid.column != oldGrid.column || widget.grid.row != oldGrid.row ||
+            widget.grid.columnSpan != oldGrid.columnSpan || widget.grid.rowSpan != oldGrid.rowSpan ||
+            widget.free.x != oldFree.x || widget.free.y != oldFree.y ||
+            widget.free.width != oldFree.width || widget.free.height != oldFree.height;
+        if (widgetChanged) ++changed;
     }
-    return migrated;
+    return changed;
 }
 
 } // namespace ws

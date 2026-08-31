@@ -51,6 +51,7 @@ struct WidgetInstance {
     bool locked{false};
     bool selected{false};
     bool primarySelection{false};
+    WidgetState preservedWidgetState;
     std::unique_ptr<IWidget> content;
 };
 

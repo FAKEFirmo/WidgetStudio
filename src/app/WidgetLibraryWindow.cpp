@@ -36,9 +36,11 @@ bool WidgetLibraryWindow::Open(HWND owner, HINSTANCE instance, const WidgetRegis
 
     registry_ = &registry;
     createWidget_ = std::move(createWidget);
+    const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
     hwnd_ = CreateWindowExW(WS_EX_DLGMODALFRAME | WS_EX_APPWINDOW, kLibraryClassName, L"Add Widget",
         WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
-        430, 330, owner, nullptr, instance, this);
+        static_cast<int>(430.0f * initialScale), static_cast<int>(330.0f * initialScale),
+        owner, nullptr, instance, this);
     if (!hwnd_) return false;
     ShowWindow(hwnd_, SW_SHOWNORMAL);
     UpdateWindow(hwnd_);
@@ -83,6 +85,7 @@ LRESULT WidgetLibraryWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM l
         add_ = CreateWindowExW(0, L"BUTTON", L"Add Widget",
             WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON,
             286, 242, 112, 32, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kAddId)), instance, nullptr);
+        if (!list_ || !description_ || !add_) return -1;
         SendMessageW(list_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         SendMessageW(description_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);
         SendMessageW(add_, WM_SETFONT, reinterpret_cast<WPARAM>(font), TRUE);

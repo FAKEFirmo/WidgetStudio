@@ -20,11 +20,14 @@ constexpr wchar_t kWindowTitle[] = L"WidgetStudio";
 constexpr int kHotkeyToggleEdit = 1;
 constexpr UINT_PTR kWidgetUpdateTimer = 2;
 constexpr UINT kMediaSessionChangedMessage = WM_APP + 12;
+constexpr UINT kMonitorRefreshMessage = WM_APP + 13;
 
 } // namespace
 
 DesktopHost::DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession)
-    : registry_(registry), mediaSession_(std::move(mediaSession)), scene_(registry),
+    : registry_(registry), renderingResources_(std::make_shared<RenderingResources>()),
+      wallpaperCache_(std::make_shared<WallpaperCache>()),
+      mediaSession_(std::move(mediaSession)), scene_(registry),
       sceneStore_(SceneStore::DefaultConfigPath()) {
     scene_.SetGridDimensions(grid_.Columns(), grid_.Rows());
 }
@@ -104,7 +107,7 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
     if (loadStatus != SceneLoadStatus::Loaded) {
         CreateWidget("clock", loadStatus == SceneLoadStatus::Missing);
     }
-    if (monitorTopology_.MigrateMissingWidgets(
+    if (monitorTopology_.ReconcileWidgets(
             scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
     SynchronizeWidgetWindows();
     ScheduleNextWidgetUpdate();
@@ -120,6 +123,10 @@ int DesktopHost::RunMessageLoop() {
         }
         if (status == 0) {
             return static_cast<int>(message.wParam);
+        }
+        if (message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE && editMode_) {
+            SetEditMode(false);
+            continue;
         }
         if ((library_.Window() && IsDialogMessageW(library_.Window(), &message)) ||
             (studio_.Window() && IsDialogMessageW(studio_.Window(), &message))) {
@@ -206,12 +213,23 @@ void DesktopHost::OpenWidgetStudio() {
     const GridMetrics studioMetrics = activeBounds_.width > 0.0f ? activeMetrics_ : metrics_;
     const RectF studioBounds = activeBounds_;
     if (!studio_.Open(nullptr, instance_, scene_, grid_, studioMetrics, studioBounds, assetDirectory,
-            ActiveMonitorId(), [this] {
+            ActiveMonitorId(), monitorTopology_.Monitors(), wallpaperCache_, renderingResources_, [this] {
+        const auto primary = scene_.PrimarySelection();
+        const WidgetInstance* widget = primary ? scene_.Find(*primary) : nullptr;
+        const MonitorDescriptor* monitor = widget ? monitorTopology_.Find(widget->monitorId) : nullptr;
+        if (monitor) {
+            ActivateMonitor(monitor->id,
+                grid_.Calculate({monitor->workAreaDips.width, monitor->workAreaDips.height}),
+                monitor->workAreaDips);
+        }
         SaveScene();
         ScheduleNextWidgetUpdate();
         SynchronizeWidgetWindows();
         InvalidateDesktop();
-    }, [this] { InvalidateDesktop(); }, [this] { OpenWidgetLibrary(); })) {
+    }, [this] {
+        SynchronizeWidgetWindows();
+        InvalidateDesktop();
+    }, [this] { OpenWidgetLibrary(); })) {
         MessageBoxW(hwnd_, L"Widget Studio could not open its settings window.",
             L"Widget Studio", MB_OK | MB_ICONERROR);
     }
@@ -249,7 +267,8 @@ void DesktopHost::ActivateMonitor(
 }
 
 void DesktopHost::InvalidateDesktop(bool reloadWallpaper) {
-    for (const auto& window : widgetWindows_) window->Invalidate(reloadWallpaper);
+    if (reloadWallpaper && wallpaperCache_) static_cast<void>(wallpaperCache_->Reload());
+    for (const auto& window : widgetWindows_) window->Invalidate();
 }
 
 void DesktopHost::SynchronizeWidgetWindows() {
@@ -257,6 +276,7 @@ void DesktopHost::SynchronizeWidgetWindows() {
         return !window->Window() || !IsWindow(window->Window()) ||
             scene_.Find(window->InstanceId()) == nullptr;
     });
+    bool creationFailed = false;
     for (const WidgetInstance& widget : scene_.Widgets()) {
         const MonitorDescriptor* monitor = monitorTopology_.Find(widget.monitorId);
         if (!monitor) monitor = monitorTopology_.Primary();
@@ -267,16 +287,44 @@ void DesktopHost::SynchronizeWidgetWindows() {
             auto window = std::make_unique<WidgetWindow>();
             if (window->Create(*this, instance_, widget.instanceId, *monitor)) {
                 widgetWindows_.push_back(std::move(window));
+            } else {
+                creationFailed = true;
             }
         } else {
-            static_cast<void>((*existing)->UpdatePlacement(*monitor));
+            if (!(*existing)->UpdatePlacement(*monitor)) creationFailed = true;
         }
+    }
+    if (creationFailed && !widgetWindowErrorShown_) {
+        MessageBoxW(hwnd_,
+            L"Widget Studio could not create or position one or more desktop widget windows. "
+            L"The scene remains saved and WidgetStudio will retry after a display or Explorer refresh.",
+            L"Widget Studio", MB_OK | MB_ICONWARNING);
+        widgetWindowErrorShown_ = true;
+    } else if (!creationFailed) {
+        widgetWindowErrorShown_ = false;
+    }
+
+    HWND previous = HWND_BOTTOM;
+    HWND previousParent = nullptr;
+    // SetWindowPos(window, sibling) places window behind sibling. Walk the
+    // scene from frontmost to backmost while inserting at the bottom so the
+    // final native order matches rendering/hit testing (last scene item wins).
+    for (auto sceneItem = scene_.Widgets().rbegin(); sceneItem != scene_.Widgets().rend(); ++sceneItem) {
+        const WidgetInstance& widget = *sceneItem;
+        const auto found = std::find_if(widgetWindows_.begin(), widgetWindows_.end(),
+            [&widget](const auto& window) { return window->InstanceId() == widget.instanceId; });
+        if (found == widgetWindows_.end()) continue;
+        const HWND parent = GetParent((*found)->Window());
+        if (parent != previousParent) previous = HWND_BOTTOM;
+        (*found)->SetZOrderAfter(previous);
+        previous = (*found)->Window();
+        previousParent = parent;
     }
 }
 
 void DesktopHost::RefreshMonitorConfiguration() {
     if (!monitorTopology_.Refresh()) return;
-    if (monitorTopology_.MigrateMissingWidgets(
+    if (monitorTopology_.ReconcileWidgets(
             scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
     const MonitorDescriptor* active = monitorTopology_.Find(activeMonitorId_);
     if (!active) active = monitorTopology_.Primary();
@@ -287,8 +335,14 @@ void DesktopHost::RefreshMonitorConfiguration() {
         metrics_ = activeMetrics_;
     }
     SynchronizeWidgetWindows();
+    studio_.UpdateMonitors(monitorTopology_.Monitors());
     InvalidateDesktop();
     studio_.Refresh();
+}
+
+void DesktopHost::RequestMonitorRefresh() {
+    if (!hwnd_ || monitorRefreshPending_) return;
+    monitorRefreshPending_ = PostMessageW(hwnd_, kMonitorRefreshMessage, 0, 0) != FALSE;
 }
 
 void DesktopHost::DeleteSelectedWidgets() {
@@ -375,11 +429,14 @@ void DesktopHost::SaveScene() {
 void DesktopHost::ScheduleNextWidgetUpdate() {
     if (!hwnd_) return;
     KillTimer(hwnd_, kWidgetUpdateTimer);
+    scheduledWidgetUpdates_.clear();
     std::optional<std::chrono::system_clock::time_point> nextUpdate;
     for (const auto& widget : scene_.Widgets()) {
         if (!widget.content) continue;
         const auto candidate = widget.content->NextUpdateTime();
-        if (candidate && (!nextUpdate || *candidate < *nextUpdate)) nextUpdate = candidate;
+        if (!candidate) continue;
+        scheduledWidgetUpdates_.insert_or_assign(widget.instanceId, *candidate);
+        if (!nextUpdate || *candidate < *nextUpdate) nextUpdate = candidate;
     }
     if (!nextUpdate) return;
     const auto now = std::chrono::system_clock::now();
@@ -387,6 +444,31 @@ void DesktopHost::ScheduleNextWidgetUpdate() {
     const auto delay = static_cast<UINT>(std::clamp<long long>(
         remaining, USER_TIMER_MINIMUM, static_cast<long long>(std::numeric_limits<UINT>::max())));
     SetTimer(hwnd_, kWidgetUpdateTimer, delay, nullptr);
+}
+
+bool DesktopHost::InvalidateDueWidgets() {
+    const auto deadline = std::chrono::system_clock::now() + std::chrono::milliseconds(4);
+    bool invalidated = false;
+    for (const auto& [instanceId, due] : scheduledWidgetUpdates_) {
+        if (due > deadline) continue;
+        const auto window = std::find_if(widgetWindows_.begin(), widgetWindows_.end(),
+            [&instanceId](const auto& item) { return item->InstanceId() == instanceId; });
+        if (window != widgetWindows_.end()) {
+            (*window)->Invalidate();
+            invalidated = true;
+        }
+    }
+    return invalidated;
+}
+
+void DesktopHost::InvalidateInteractiveWidgets() {
+    for (const auto& window : widgetWindows_) {
+        const WidgetInstance* widget = scene_.Find(window->InstanceId());
+        const WidgetDescriptor* descriptor = widget ? registry_.Find(widget->typeId) : nullptr;
+        if (descriptor && HasCapability(descriptor->capabilities, WidgetCapability::Interactive)) {
+            window->Invalidate();
+        }
+    }
 }
 
 void DesktopHost::UpdateDrag(PointF pointer) {
@@ -435,7 +517,11 @@ LRESULT DesktopHost::HandleWidgetNcHitTest(
     const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, window.Dpi()));
     const PointF clientPoint{static_cast<float>(point.x) * pixelsToDips,
         static_cast<float>(point.y) * pixelsToDips};
-    return HitTestWidgetAction(window, clientPoint) ? HTCLIENT : HTTRANSPARENT;
+    if (HitTestWidgetAction(window, clientPoint)) return HTCLIENT;
+    const WidgetInstance* widget = scene_.Find(window.InstanceId());
+    const WidgetDescriptor* descriptor = widget ? registry_.Find(widget->typeId) : nullptr;
+    return descriptor && !HasCapability(descriptor->capabilities, WidgetCapability::PassiveClickThrough)
+        ? HTCLIENT : HTTRANSPARENT;
 }
 
 void DesktopHost::HandleWidgetLeftDown(
@@ -502,11 +588,16 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     case WM_SETTINGCHANGE:
         if (wParam == SPI_SETWORKAREA) RefreshMonitorConfiguration();
         InvalidateDesktop(true);
-        studio_.InvalidatePreview(true);
+        studio_.InvalidatePreview();
         ScheduleNextWidgetUpdate();
         return 0;
 
     case WM_DISPLAYCHANGE:
+        RefreshMonitorConfiguration();
+        return 0;
+
+    case kMonitorRefreshMessage:
+        monitorRefreshPending_ = false;
         RefreshMonitorConfiguration();
         return 0;
 
@@ -518,16 +609,16 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
 
     case WM_TIMER:
         if (wParam == kWidgetUpdateTimer) {
+            const bool invalidated = InvalidateDueWidgets();
             ScheduleNextWidgetUpdate();
-            InvalidateDesktop();
-            studio_.InvalidatePreview();
+            if (invalidated) studio_.InvalidatePreview();
             return 0;
         }
         break;
 
     case kMediaSessionChangedMessage:
         ScheduleNextWidgetUpdate();
-        InvalidateDesktop();
+        InvalidateInteractiveWidgets();
         studio_.InvalidatePreview();
         return 0;
 

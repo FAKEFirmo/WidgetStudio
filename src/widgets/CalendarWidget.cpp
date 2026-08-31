@@ -209,7 +209,9 @@ WidgetDescriptor CalendarWidget::Descriptor() {
         .defaultGridSize = GridSize{4, 4},
         .minimumGridSize = GridSize{3, 3},
         .maximumGridSize = GridSize{6, 6},
-        .capabilities = WidgetCapability::Configurable | WidgetCapability::Scalable,
+        .capabilities = WidgetCapability::Configurable | WidgetCapability::Scalable |
+            WidgetCapability::Resizable | WidgetCapability::Duplicatable |
+            WidgetCapability::PassiveClickThrough,
         .factory = [] { return std::make_unique<CalendarWidget>(); },
     };
 }

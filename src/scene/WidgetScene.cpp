@@ -27,6 +27,15 @@ bool Overlaps(const GridPlacement& left, const GridPlacement& right) noexcept {
         left.row + left.rowSpan > right.row;
 }
 
+WidgetState EffectiveWidgetState(const WidgetInstance& widget) {
+    WidgetState state = widget.preservedWidgetState;
+    if (!widget.content) return state;
+    for (auto& [key, value] : widget.content->SaveState()) {
+        state.insert_or_assign(std::move(key), std::move(value));
+    }
+    return state;
+}
+
 } // namespace
 
 WidgetScene::WidgetScene(const WidgetRegistry& registry) : registry_(registry) {}
@@ -43,6 +52,11 @@ const WidgetInstance* WidgetScene::Find(std::string_view instanceId) const noexc
         return widget.instanceId == instanceId;
     });
     return it == widgets_.end() ? nullptr : &*it;
+}
+
+const WidgetDescriptor* WidgetScene::DescriptorFor(std::string_view instanceId) const noexcept {
+    const WidgetInstance* widget = Find(instanceId);
+    return widget ? registry_.Find(widget->typeId) : nullptr;
 }
 
 std::optional<std::string> WidgetScene::HitTest(
@@ -147,6 +161,8 @@ std::size_t WidgetScene::RemoveSelectedWidgets() noexcept {
 WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId) {
     const WidgetInstance* source = Find(instanceId);
     if (!source) return nullptr;
+    const WidgetDescriptor* descriptor = registry_.Find(source->typeId);
+    if (!descriptor || !HasCapability(descriptor->capabilities, WidgetCapability::Duplicatable)) return nullptr;
     WidgetPersistenceRecord record{};
     record.typeId = source->typeId;
     record.monitorId = source->monitorId;
@@ -157,7 +173,7 @@ WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId) {
     record.locked = source->locked;
     record.contentScale = source->contentScale;
     record.appearance = source->appearance;
-    record.widgetState = source->content->SaveState();
+    record.widgetState = EffectiveWidgetState(*source);
     return RestoreWidget(record, true);
 }
 
@@ -176,11 +192,20 @@ bool WidgetScene::SetWidgetLayoutMode(
     if (mode == LayoutMode::Free) {
         widget->free = FreePlacement{current.x, current.y, current.width, current.height};
     } else {
+        const WidgetDescriptor* descriptor = registry_.Find(widget->typeId);
+        const int minimumColumns = std::min(gridColumns_, descriptor ? descriptor->minimumGridSize.columns : 1);
+        const int minimumRows = std::min(gridRows_, descriptor ? descriptor->minimumGridSize.rows : 1);
+        const int maximumColumns = std::max(minimumColumns,
+            std::min(gridColumns_, descriptor ? descriptor->maximumGridSize.columns : gridColumns_));
+        const int maximumRows = std::max(minimumRows,
+            std::min(gridRows_, descriptor ? descriptor->maximumGridSize.rows : gridRows_));
         const float stride = std::max(1.0f, metrics.cellSize + metrics.gap);
         widget->grid.columnSpan = std::clamp(
-            static_cast<int>(std::lround((current.width + metrics.gap) / stride)), 1, gridColumns_);
+            static_cast<int>(std::lround((current.width + metrics.gap) / stride)),
+            minimumColumns, maximumColumns);
         widget->grid.rowSpan = std::clamp(
-            static_cast<int>(std::lround((current.height + metrics.gap) / stride)), 1, gridRows_);
+            static_cast<int>(std::lround((current.height + metrics.gap) / stride)),
+            minimumRows, maximumRows);
         widget->grid = grid.MoveToPoint(widget->grid, PointF{current.x, current.y}, PointF{}, metrics);
     }
     widget->layoutMode = mode;
@@ -207,7 +232,7 @@ WidgetSceneSnapshot WidgetScene::Snapshot() const {
             .instanceId = widget.instanceId, .typeId = widget.typeId, .monitorId = widget.monitorId,
             .layoutMode = widget.layoutMode, .grid = widget.grid, .free = widget.free,
             .locked = widget.locked, .contentScale = widget.contentScale,
-            .appearance = widget.appearance, .widgetState = widget.content->SaveState(),
+            .appearance = widget.appearance, .widgetState = EffectiveWidgetState(widget),
         });
     }
     return snapshot;
@@ -215,6 +240,8 @@ WidgetSceneSnapshot WidgetScene::Snapshot() const {
 
 WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record, bool select) {
     if (!record.instanceId.empty() && Find(record.instanceId)) return nullptr;
+    const WidgetDescriptor* descriptor = registry_.Find(record.typeId);
+    if (!descriptor) return nullptr;
     std::unique_ptr<IWidget> content = registry_.Create(record.typeId);
     if (!content) return nullptr;
     content->RestoreState(record.widgetState);
@@ -224,8 +251,14 @@ WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record
     instance.monitorId = record.monitorId.empty() ? L"primary" : record.monitorId;
     instance.layoutMode = record.layoutMode;
     instance.grid = record.grid;
-    instance.grid.columnSpan = std::clamp(instance.grid.columnSpan, 1, gridColumns_);
-    instance.grid.rowSpan = std::clamp(instance.grid.rowSpan, 1, gridRows_);
+    const int minimumColumns = std::min(gridColumns_, descriptor->minimumGridSize.columns);
+    const int minimumRows = std::min(gridRows_, descriptor->minimumGridSize.rows);
+    const int maximumColumns = std::max(minimumColumns,
+        std::min(gridColumns_, descriptor->maximumGridSize.columns));
+    const int maximumRows = std::max(minimumRows,
+        std::min(gridRows_, descriptor->maximumGridSize.rows));
+    instance.grid.columnSpan = std::clamp(instance.grid.columnSpan, minimumColumns, maximumColumns);
+    instance.grid.rowSpan = std::clamp(instance.grid.rowSpan, minimumRows, maximumRows);
     instance.grid.column = std::clamp(instance.grid.column, 0, gridColumns_ - instance.grid.columnSpan);
     instance.grid.row = std::clamp(instance.grid.row, 0, gridRows_ - instance.grid.rowSpan);
     instance.free = record.free;
@@ -237,6 +270,7 @@ WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record
     instance.appearance.opacity = std::clamp(instance.appearance.opacity, 0.0f, 1.0f);
     instance.appearance.blurRadius = std::clamp(instance.appearance.blurRadius, 0.0f, 128.0f);
     instance.appearance.cornerRadius = std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f);
+    instance.preservedWidgetState = record.widgetState;
     instance.content = std::move(content);
     widgets_.push_back(std::move(instance));
     if (select) Select(widgets_.back().instanceId, false);

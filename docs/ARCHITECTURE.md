@@ -30,7 +30,7 @@ A per-user named mutex rejects a second launch before COM, rendering, or persist
 
 ## Widget type and instance
 
-`WidgetDescriptor` describes a type: stable type ID, display metadata, default/minimum/maximum grid footprint, capability flags, and its content factory. `WidgetRegistry` owns the descriptor catalog, supports enumeration and lookup, and constructs `IWidget` content without depending on UI code.
+`WidgetDescriptor` describes a type: stable type ID, display metadata, default/minimum/maximum grid footprint, capability flags, and its content factory. Capability metadata covers widget-specific configuration, content scaling, interaction, resizing, duplication, and passive click-through. Scene and management operations consult those flags rather than concrete type IDs. `WidgetRegistry` owns the descriptor catalog, supports enumeration and lookup, and constructs `IWidget` content without depending on UI code.
 
 `WidgetInstance` describes one scene object: unique instance ID, type ID, monitor ID, grid/free layout state, universal appearance, lock state, content scale, selection state, and an owned `IWidget`. Multiple instances can reference the same type descriptor while owning independent widget-specific state.
 
@@ -80,7 +80,7 @@ In Editing mode, click establishes the primary selection, Shift-click toggles mu
 
 `WidgetPersistenceRecord` is the encoding-neutral persistence model. It contains instance/type/monitor IDs, grid and free placements, layout mode, lock state, content scale, universal appearance, and widget-specific key/value state.
 
-`SceneJsonCodec` encodes schema version 1 without a third-party dependency and rejects malformed input, unsupported versions, invalid values, and duplicate instance IDs. Unknown JSON fields are ignored for forward compatibility. Records whose widget type is unavailable are retained and written back instead of being discarded.
+`SceneJsonCodec` encodes schema version 1 without a third-party dependency and rejects malformed input, unsupported future versions, invalid values, and duplicate instance IDs. Schema version 0 migrates missing monitor associations to the primary display. Unknown JSON fields are ignored safely. The scene preserves unknown widget-state keys when a known older widget restores and re-saves a newer record. Records whose widget type is unavailable are retained and written back instead of being discarded.
 
 `SceneStore` writes a temporary file in the configuration directory, flushes it, and uses same-volume Win32 replacement. When replacing an existing configuration it retains the previous file as `scene.json.bak`. Normal data lives under `%LOCALAPPDATA%\WidgetStudio`; an explicit `portable.mode` sentinel redirects configuration, imported images, and cache data to `data\config`, `data\images`, and `data\cache` beside the executable. A legacy portable scene is copied forward without deleting the old file.
 
@@ -96,19 +96,21 @@ Widgets draw reference geometry through one Direct2D transform. Clock uses a 270
 
 Music metadata, playback state, timeline state, and artwork originate only from `GlobalSystemMediaTransportControlsSessionManager` through the shared `windows/MediaSessionService`. Session events update a mutex-protected snapshot and post a lightweight host notification. Artwork bytes are shared and refreshed only on media-property changes; playback/timeline events do not re-fetch or copy artwork. While playing, Music requests a 500 ms one-shot progress refresh.
 
-All WinRT media-session calls run on a dedicated MTA worker. The worker blocks on a condition variable when idle, wakes for session events or transport commands, and publishes immutable snapshots back to the UI. This avoids blocking WinRT waits on the application STA and gives shutdown a single resource-owning thread.
+All WinRT media-session calls run on a dedicated MTA worker. The service initializes lazily when the first Music instance is constructed, so scenes without Music do not pay for a media thread or session manager. Once active, the worker blocks on a condition variable when idle, wakes for session events or transport commands, and publishes immutable snapshots back to the UI. This avoids blocking WinRT waits on the application STA and gives shutdown a single resource-owning thread.
 
 Music uses the established Portrait, Square, Landscape, and Ultra-wide authored profiles. Each profile contains exactly one square artwork region, one progress bar, elapsed/negative-remaining labels, and Previous/Play-Pause/Next vector controls. Transport hit regions are returned through the generic widget-action interface.
 
 ## Wallpaper and glass
 
-Each HWND renderer decodes the current wallpaper once through WIC and retains its device-dependent bitmap until the wallpaper or render target changes. A widget window samples the monitor-relative wallpaper region behind its scene rectangle, so the rounded card composes consistently without screen capture. Glass-enabled cards cache a low-resolution regional sample and bilinearly expand it beneath a rounded geometry mask. Cache entries invalidate only when the wallpaper, render target, DPI, card geometry, or blur radius changes. No continuous capture or blur loop is used.
+`WallpaperCache` decodes the current wallpaper once per process into a shared WIC bitmap. Each HWND renderer creates only the small device-dependent region needed for that widget; Widget Studio creates a monitor-sized preview region only while its window is open. A widget window samples the monitor-relative wallpaper area behind its scene rectangle, so the rounded card composes consistently without screen capture. Glass-enabled cards cache a further downsampled regional bitmap and bilinearly expand it beneath a rounded geometry mask. Cache entries invalidate only when the wallpaper, render target, DPI, card geometry, or blur radius changes. No continuous capture or blur loop is used.
+
+`RenderingResources` owns one process-wide Direct2D factory, shared DirectWrite factory, WIC factory, and common text formats. Per-widget `Renderer` objects retain only their HWND-specific render targets and device-dependent bitmap caches. This preserves independent lightweight windows while avoiding a full graphics-factory stack for every widget.
 
 ## Photo invariant
 
-Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fill` (uniform scale plus focal crop) and `fit` (uniform scale plus letterbox/pillarbox) calculations as pure tested logic. `PhotoWidget` decodes local files with WIC and caches its target-dependent Direct2D bitmap by render-resource generation. `AssetLibrary` copies chosen source files into application-owned local storage through a temporary file and same-volume move.
+Source-image aspect ratio is immutable. `PhotoLayout` provides proportional `fill` (uniform scale plus focal crop) and `fit` (uniform scale plus letterbox/pillarbox) calculations as pure tested logic. User content scale uniformly sizes the centered image composition and clips zoomed content to the card content area. `PhotoWidget` decodes local files with WIC and keeps a separate bitmap cache for each active render target and resource generation. Music artwork follows the same rule. This is required because the live widget instance renders into both its desktop HWND and the Studio preview, while Direct2D bitmaps are target-dependent resources. `AssetLibrary` copies chosen source files into application-owned local storage through a temporary file and same-volume move.
 
-New imports persist as validated `asset://filename` references. The composition root supplies the active asset directory to the Photo factory, allowing portable releases to move as a unit without coupling the widget to global path discovery. Legacy absolute image paths remain supported.
+New imports persist as validated `asset://filename` references. The composition root supplies the active image directory to the Photo factory, allowing portable releases to move as a unit without coupling the widget to global path discovery. Legacy absolute image paths remain supported. The data-path migration copies legacy scene and imported-image files forward without deleting their originals.
 
 ## Calendar model
 
@@ -116,7 +118,7 @@ New imports persist as validated `asset://filename` references. The composition 
 
 ## Widget Studio
 
-`WidgetStudioWindow` renders the same `WidgetScene` through the same `Renderer`, `GridLayout`, and authored widget content used by the desktop. A preview-only render transform fits the active monitor scene without maintaining duplicate layout state. Universal instance fields and declarative `IWidget::Settings()` definitions drive native controls for numbers, booleans, choices, text, and local files.
+`WidgetStudioWindow` renders the same `WidgetScene` through the same `Renderer`, `GridLayout`, and authored widget content used by the desktop. A preview-only render transform fits the active monitor scene without maintaining duplicate layout state. Universal instance fields and declarative `IWidget::Settings()` definitions drive native controls for numbers, booleans, choices, text, and local files. A topology-backed monitor selector moves selected instances generically and switches the preview to the destination work area.
 
 ## Desktop and monitor boundary
 
@@ -124,7 +126,7 @@ New imports persist as validated `asset://filename` references. The composition 
 
 `DesktopHost` is a hidden controller HWND for tray callbacks, global commands, event-driven timers, and subsystem lifetime. It synchronizes exactly one lightweight `WidgetWindow` with every live scene instance. Each widget window computes its own physical position from monitor-local DIPs and effective DPI, renders only its instance, and performs only that widget's action hit testing. Passive regions return `HTTRANSPARENT`; Edit Mode temporarily makes the surface selectable and draggable. `WidgetWindowPlacementCalculator` keeps DIP-to-pixel conversion testable outside Win32 interaction code.
 
-`MonitorTopology` enumerates stable display device IDs, effective DPI, and DIP work areas. The last interacted widget window becomes the Widget Studio and Widget Library target. Display changes reposition all widget HWNDs; instances whose saved display disappeared migrate to the primary monitor and clamp to its grid/work area before the scene is saved. After Explorer broadcasts `TaskbarCreated`, surviving windows reattach and destroyed child windows are recreated from the scene.
+`MonitorTopology` enumerates stable display device IDs, effective DPI, full-monitor pixels, and work-area pixels/DIPs. Widget placement is relative to the work area so it avoids taskbars, while wallpaper sampling remains anchored to the full monitor even with a top or left taskbar. The last interacted widget window becomes the Widget Studio and Widget Library target. Display changes reposition all widget HWNDs; every instance is reconciled with the current grid and work area, while instances whose saved display disappeared first migrate to the primary monitor. Any corrected geometry is saved. Per-widget `WM_DPICHANGED` notifications coalesce into one topology refresh. After Explorer broadcasts `TaskbarCreated`, surviving windows reattach and destroyed child windows are recreated from the scene.
 
 ## Delivery boundary
 

@@ -6,16 +6,20 @@
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
 #include "persistence/SceneStore.h"
+#include "rendering/WallpaperCache.h"
+#include "rendering/RenderingResources.h"
 #include "scene/WidgetScene.h"
 #include "widgets/WidgetRegistry.h"
 #include "windows/MonitorTopology.h"
 #include "windows/StartupShortcutService.h"
 
+#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <vector>
 #include <windows.h>
 
@@ -69,9 +73,12 @@ private:
     [[nodiscard]] SceneLoadStatus LoadScene();
     void SaveScene();
     void ScheduleNextWidgetUpdate();
+    bool InvalidateDueWidgets();
+    void InvalidateInteractiveWidgets();
     void InvalidateDesktop(bool reloadWallpaper = false);
     void SynchronizeWidgetWindows();
     void RefreshMonitorConfiguration();
+    void RequestMonitorRefresh();
     void ActivateMonitor(std::wstring_view monitorId, const GridMetrics& metrics, RectF bounds);
     [[nodiscard]] std::wstring ActiveMonitorId() const;
     [[nodiscard]] std::optional<WidgetActionHit> HitTestWidgetAction(
@@ -83,12 +90,17 @@ private:
     [[nodiscard]] GridLayout& Grid() noexcept { return grid_; }
     [[nodiscard]] WidgetScene& Scene() noexcept { return scene_; }
     [[nodiscard]] bool EditMode() const noexcept { return editMode_; }
+    [[nodiscard]] const std::shared_ptr<WallpaperCache>& Wallpaper() const noexcept { return wallpaperCache_; }
+    [[nodiscard]] const std::shared_ptr<RenderingResources>& Rendering() const noexcept {
+        return renderingResources_;
+    }
 
     HINSTANCE instance_{};
     HWND hwnd_{};
     UINT taskbarCreatedMessage_{};
     bool editMode_{false};
     bool hotkeyRegistered_{false};
+    bool monitorRefreshPending_{false};
     std::wstring activeMonitorId_;
     GridMetrics activeMetrics_{};
     RectF activeBounds_{};
@@ -96,11 +108,14 @@ private:
     GridLayout grid_{};
     GridMetrics metrics_{};
     const WidgetRegistry& registry_;
+    std::shared_ptr<RenderingResources> renderingResources_;
+    std::shared_ptr<WallpaperCache> wallpaperCache_;
     std::shared_ptr<MediaSessionService> mediaSession_;
     WidgetScene scene_;
     SceneStore sceneStore_;
     WidgetSceneSnapshot unrestoredRecords_;
     bool persistenceErrorShown_{false};
+    bool widgetWindowErrorShown_{false};
     TrayController tray_{};
     std::vector<std::unique_ptr<WidgetWindow>> widgetWindows_;
     MonitorTopology monitorTopology_{};
@@ -108,6 +123,7 @@ private:
     WidgetLibraryWindow library_{};
     WidgetStudioWindow studio_{};
     std::optional<DragState> drag_{};
+    std::unordered_map<std::string, std::chrono::system_clock::time_point> scheduledWidgetUpdates_;
 };
 
 } // namespace ws

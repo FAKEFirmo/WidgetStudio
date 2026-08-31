@@ -13,14 +13,22 @@
 #include <string>
 #include <string_view>
 #include <cstdint>
+#include <memory>
 #include <unordered_map>
 
 namespace ws {
 
+class WallpaperCache;
+class RenderingResources;
+
 class Renderer {
 public:
-    Renderer() = default;
+    explicit Renderer(std::shared_ptr<WallpaperCache> wallpaperCache = {},
+        std::shared_ptr<RenderingResources> resources = {});
     ~Renderer() = default;
+
+    void SetWallpaperCache(std::shared_ptr<WallpaperCache> wallpaperCache);
+    void SetSharedResources(std::shared_ptr<RenderingResources> resources);
 
     HRESULT Initialize(HWND hwnd);
     void DiscardDeviceResources() noexcept;
@@ -47,7 +55,7 @@ public:
 
 private:
     HRESULT CreateDeviceResources();
-    HRESULT LoadBitmapFromFile(const std::wstring& path);
+    HRESULT EnsureWallpaperBitmap();
 
     void DrawWallpaper();
     void DrawGlass(const WidgetInstance& widget, RectF rect);
@@ -60,13 +68,10 @@ private:
     HWND hwnd_{};
     float dpi_{96.0f};
 
-    Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory_;
-    Microsoft::WRL::ComPtr<IDWriteFactory> dwriteFactory_;
-    Microsoft::WRL::ComPtr<IWICImagingFactory> wicFactory_;
     Microsoft::WRL::ComPtr<ID2D1HwndRenderTarget> renderTarget_;
     Microsoft::WRL::ComPtr<ID2D1Bitmap> wallpaperBitmap_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> labelFormat_;
-    Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;
+    std::shared_ptr<RenderingResources> resources_;
+    std::shared_ptr<WallpaperCache> wallpaperCache_;
     std::uint64_t resourceGeneration_{};
     std::uint64_t wallpaperRevision_{};
     RectF wallpaperWindowBounds_{};

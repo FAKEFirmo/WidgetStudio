@@ -19,6 +19,9 @@ enum class WidgetCapability : std::uint32_t {
     Configurable = 1u << 0,
     Scalable = 1u << 1,
     Interactive = 1u << 2,
+    Resizable = 1u << 3,
+    Duplicatable = 1u << 4,
+    PassiveClickThrough = 1u << 5,
 };
 
 constexpr WidgetCapability operator|(WidgetCapability left, WidgetCapability right) noexcept {

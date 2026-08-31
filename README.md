@@ -8,8 +8,9 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 - Square 12 x 7 grid placement plus free DIP layout, alignment, matching, and distribution.
 - Click/Shift-click selection, dragging, locking, duplication, removal, passive mode, and explicit widget action hit regions.
 - Native Widget Library and Widget Studio windows operating on the shared live scene.
-- Versioned atomic JSON persistence with backup and application-owned photo imports.
-- Per-Monitor DPI Awareness V2, one lightweight HWND per widget, monitor association/isolation, and missing-monitor migration.
+- Generic capability-aware settings, including monitor assignment, and a shared-scene preview.
+- Versioned/migrating atomic JSON persistence with backup, unknown-setting preservation, and application-owned photo imports.
+- Per-Monitor DPI Awareness V2, one lightweight HWND per widget, monitor association/isolation, missing-monitor migration, and work-area/resolution reconciliation.
 - Real-desktop WorkerW attachment by default, with a non-crashing normal-window fallback and Explorer restart recovery.
 - Event-driven invalidation. No continuous idle render loop is used.
 
@@ -44,6 +45,7 @@ WidgetStudio starts in passive mode. Use the tray menu or `Ctrl+Alt+W` to enter 
 - `Delete`, `Ctrl+D`, and `Ctrl+L` remove, duplicate, and toggle lock.
 - Double-click the tray icon toggles Edit Mode.
 - The tray menu opens the Widget Library and Widget Studio.
+- Widget Studio can move selected widgets between discovered monitors and clamps free geometry to the destination work area.
 - The tray menu can opt into launch-at-login using one removable per-user Startup-folder shortcut.
 - In passive mode, only explicit widget controls accept input.
 
@@ -53,7 +55,7 @@ Normal mode writes scene data under `%LOCALAPPDATA%\WidgetStudio\config`, import
 
 Imported photos are persisted as `asset://` references relative to the active data directory, so moving a complete portable release folder does not invalidate them. Existing absolute paths remain readable for compatibility.
 
-When `portable.mode` exists beside the executable—as it does in the packaged release—state stays under `data\config`, `data\images`, and `data\cache` beside the executable. An existing `portable-data\scene.json` is copied into the new configuration location once for compatibility. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
+When `portable.mode` exists beside the executable—as it does in the packaged release—state stays under `data\config`, `data\images`, and `data\cache` beside the executable. Existing `portable-data\scene.json` and `portable-data\assets` files are copied into the new locations once for compatibility. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
 
 Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WidgetStudio.lnk`; uncheck the same tray item to remove it. To uninstall cleanly, disable that option if used, exit WidgetStudio, and delete its folder.
 
@@ -62,3 +64,5 @@ Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%
 - [AGENTS.md](AGENTS.md) contains mandatory implementation constraints.
 - [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) describes subsystem boundaries.
 - [docs/MILESTONES.md](docs/MILESTONES.md) records implementation and validation status.
+- [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) separates implemented behavior from remaining final runtime gates.
+- [docs/RELEASE.md](docs/RELEASE.md) is the build, operation, data, removal, API, and platform guide.

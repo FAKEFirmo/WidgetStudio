@@ -16,6 +16,9 @@ Outputs are isolated under `C:\WidgetStudioBuild` by default:
 
 - `Debug` and `Release`: independent Ninja build trees
 - `dist\WidgetStudio`: portable release
+- `runtime-validation\WidgetStudio`: disposable copy used for GUI and performance checks
 - `reports`: GUI smoke and warm-idle performance reports
+
+The validation script performs clean Debug and Release builds, packages the Release candidate, and runs CTest for both configurations. It collects both independent test results before failing, but does not proceed to GUI/runtime checks unless both pass. It never launches `dist\WidgetStudio` directly, so first-run portable data cannot contaminate the deliverable. The smoke report verifies the portable sentinel, schema/default Clock creation, and the one-process launch guard. The performance report records warm-idle CPU, memory, thread/handle counts, and TCP/UDP endpoint counts when Windows permits those queries.
 
 Use `-SkipRuntime` only when GUI execution is unavailable. Deleting `C:\WidgetStudioBuild` removes all generated output; no build file is written into the source repository.

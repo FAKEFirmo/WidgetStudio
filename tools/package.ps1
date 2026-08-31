@@ -31,4 +31,27 @@ if (-not (Test-Path -LiteralPath $executable)) {
     throw "The portable release executable was not produced at $executable."
 }
 
+foreach ($required in @(
+        'portable.mode',
+        'README.txt',
+        'assets',
+        'data\config',
+        'data\images',
+        'data\cache')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $releaseRoot $required))) {
+        throw "The portable release is missing '$required'."
+    }
+}
+$forbiddenExtensions = @('.obj', '.pdb', '.ilk', '.lib', '.exp')
+$forbiddenFiles = @(Get-ChildItem -LiteralPath $releaseRoot -Recurse -File | Where-Object {
+    $forbiddenExtensions -contains $_.Extension.ToLowerInvariant()
+})
+if ($forbiddenFiles.Count -gt 0) {
+    throw "The portable release contains development artifacts: $($forbiddenFiles.FullName -join ', ')"
+}
+$packagedRuntimeData = @(Get-ChildItem -LiteralPath (Join-Path $releaseRoot 'data') -Recurse -File)
+if ($packagedRuntimeData.Count -gt 0) {
+    throw "The portable release contains runtime state: $($packagedRuntimeData.FullName -join ', ')"
+}
+
 Write-Host "Portable release created at $releaseRoot"

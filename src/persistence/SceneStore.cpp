@@ -75,17 +75,31 @@ std::filesystem::path LocalDataDirectory(const std::filesystem::path& executable
     return executableDirectory / L"data";
 }
 
-void MigrateLegacyPortableScene(const std::filesystem::path& executableDirectory,
-    const std::filesystem::path& configPath) {
-    const std::filesystem::path legacyPath = executableDirectory / L"portable-data" / L"scene.json";
+void CopyIfMissing(const std::filesystem::path& source, const std::filesystem::path& destination) {
     std::error_code error;
-    if (std::filesystem::exists(configPath, error) || error) return;
+    if (std::filesystem::exists(destination, error) || error) return;
     error.clear();
-    if (!std::filesystem::exists(legacyPath, error) || error) return;
-    std::filesystem::create_directories(configPath.parent_path(), error);
+    if (!std::filesystem::is_regular_file(source, error) || error) return;
+    std::filesystem::create_directories(destination.parent_path(), error);
     if (error) return;
-    std::filesystem::copy_file(legacyPath, configPath,
-        std::filesystem::copy_options::none, error);
+    std::filesystem::copy_file(source, destination, std::filesystem::copy_options::none, error);
+}
+
+void MigrateLegacyData(const std::filesystem::path& legacyRoot,
+    const std::filesystem::path& dataRoot) {
+    CopyIfMissing(legacyRoot / L"scene.json", dataRoot / L"config" / L"scene.json");
+
+    const std::filesystem::path legacyImages = legacyRoot / L"assets";
+    std::error_code error;
+    if (!std::filesystem::is_directory(legacyImages, error) || error) return;
+    const std::filesystem::path imageDirectory = dataRoot / L"images";
+    std::filesystem::create_directories(imageDirectory, error);
+    if (error) return;
+    for (std::filesystem::directory_iterator iterator(legacyImages, error), end;
+            !error && iterator != end; iterator.increment(error)) {
+        if (!iterator->is_regular_file(error) || error) continue;
+        CopyIfMissing(iterator->path(), imageDirectory / iterator->path().filename());
+    }
 }
 
 } // namespace
@@ -94,17 +108,18 @@ SceneStore::SceneStore(std::filesystem::path configPath) : configPath_(std::move
 
 std::filesystem::path SceneStore::DefaultDataDirectory() {
     const std::filesystem::path executableDirectory = ExecutableDirectory();
-    if (PortableModeEnabled(executableDirectory)) return executableDirectory / L"data";
-    return LocalDataDirectory(executableDirectory);
+    if (PortableModeEnabled(executableDirectory)) {
+        const std::filesystem::path dataRoot = executableDirectory / L"data";
+        MigrateLegacyData(executableDirectory / L"portable-data", dataRoot);
+        return dataRoot;
+    }
+    const std::filesystem::path dataRoot = LocalDataDirectory(executableDirectory);
+    MigrateLegacyData(dataRoot, dataRoot);
+    return dataRoot;
 }
 
 std::filesystem::path SceneStore::DefaultConfigPath() {
-    const std::filesystem::path executableDirectory = ExecutableDirectory();
-    const std::filesystem::path configPath = DefaultDataDirectory() / L"config" / L"scene.json";
-    if (PortableModeEnabled(executableDirectory)) {
-        MigrateLegacyPortableScene(executableDirectory, configPath);
-    }
-    return configPath;
+    return DefaultDataDirectory() / L"config" / L"scene.json";
 }
 
 std::filesystem::path SceneStore::DefaultImageDirectory() {

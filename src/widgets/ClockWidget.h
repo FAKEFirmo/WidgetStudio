@@ -24,7 +24,9 @@ private:
     bool use24Hour_{true};
     bool showSeconds_{false};
     bool showDivider_{true};
+    bool showDate_{true};
     std::wstring dateFormat_{L"long"};
+    std::wstring fontFamily_{L"Segoe UI Variable"};
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> timeFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> dateTextFormat_;
 };

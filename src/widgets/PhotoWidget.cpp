@@ -43,35 +43,48 @@ std::wstring FloatText(float value) {
 
 } // namespace
 
-HRESULT PhotoWidget::EnsureBitmap(const WidgetRenderContext& context) const {
+ID2D1Bitmap* PhotoWidget::BitmapFor(const WidgetRenderContext& context) const {
     const std::filesystem::path resolvedPath = ResolvedAssetPath();
-    if (cachedTarget_ != &context.renderTarget || cachedGeneration_ != context.resourceGeneration ||
-        cachedPath_ != resolvedPath.wstring()) {
-        bitmap_.Reset();
-        cachedTarget_ = &context.renderTarget;
-        cachedGeneration_ = context.resourceGeneration;
-        cachedPath_ = resolvedPath.wstring();
-        loadAttempted_ = false;
+    const std::wstring path = resolvedPath.wstring();
+    auto found = std::find_if(bitmapCache_.begin(), bitmapCache_.end(), [&context](const auto& entry) {
+        return entry.target == &context.renderTarget;
+    });
+    if (found == bitmapCache_.end()) {
+        // A widget normally renders to its desktop window and the Studio preview.
+        // Keep those target-specific bitmaps independent because Direct2D resources
+        // cannot be shared blindly across render-target resource domains.
+        if (bitmapCache_.size() >= 4) bitmapCache_.erase(bitmapCache_.begin());
+        bitmapCache_.push_back(BitmapCacheEntry{.target = &context.renderTarget});
+        found = std::prev(bitmapCache_.end());
     }
-    if (bitmap_) return S_OK;
-    if (loadAttempted_ || assetPath_.empty()) return S_FALSE;
-    loadAttempted_ = true;
+    BitmapCacheEntry& cache = *found;
+    if (cache.resourceGeneration != context.resourceGeneration || cache.path != path) {
+        cache.resourceGeneration = context.resourceGeneration;
+        cache.path = path;
+        cache.loadAttempted = false;
+        cache.bitmap.Reset();
+    }
+    if (cache.bitmap) return cache.bitmap.Get();
+    if (cache.loadAttempted || assetPath_.empty() || resolvedPath.empty()) return nullptr;
+    cache.loadAttempted = true;
 
     Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
     HRESULT result = context.wicFactory.CreateDecoderFromFilename(
         resolvedPath.c_str(), nullptr, GENERIC_READ,
         WICDecodeMetadataCacheOnLoad, decoder.GetAddressOf());
-    if (FAILED(result)) return result;
+    if (FAILED(result)) return nullptr;
     Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
     result = decoder->GetFrame(0, frame.GetAddressOf());
-    if (FAILED(result)) return result;
+    if (FAILED(result)) return nullptr;
     Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
     result = context.wicFactory.CreateFormatConverter(converter.GetAddressOf());
-    if (FAILED(result)) return result;
+    if (FAILED(result)) return nullptr;
     result = converter->Initialize(frame.Get(), GUID_WICPixelFormat32bppPBGRA,
         WICBitmapDitherTypeNone, nullptr, 0.0, WICBitmapPaletteTypeMedianCut);
-    if (FAILED(result)) return result;
-    return context.renderTarget.CreateBitmapFromWicBitmap(converter.Get(), nullptr, bitmap_.GetAddressOf());
+    if (FAILED(result)) return nullptr;
+    result = context.renderTarget.CreateBitmapFromWicBitmap(
+        converter.Get(), nullptr, cache.bitmap.GetAddressOf());
+    return SUCCEEDED(result) ? cache.bitmap.Get() : nullptr;
 }
 
 std::filesystem::path PhotoWidget::ResolvedAssetPath() const {
@@ -83,7 +96,8 @@ std::filesystem::path PhotoWidget::ResolvedAssetPath() const {
 }
 
 void PhotoWidget::Render(const WidgetRenderContext& context) const {
-    if (EnsureBitmap(context) != S_OK || !bitmap_) {
+    ID2D1Bitmap* bitmap = BitmapFor(context);
+    if (!bitmap) {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> brush;
         if (FAILED(context.renderTarget.CreateSolidColorBrush(context.lightAppearance
                 ? D2D1::ColorF(0.08f, 0.08f, 0.09f, 0.52f)
@@ -96,15 +110,21 @@ void PhotoWidget::Render(const WidgetRenderContext& context) const {
         return;
     }
 
-    RectF target = context.bounds;
+    const float contentScale = std::clamp(context.contentScale, 0.25f, 4.0f);
+    RectF target{
+        context.bounds.x + context.bounds.width * (1.0f - contentScale) * 0.5f,
+        context.bounds.y + context.bounds.height * (1.0f - contentScale) * 0.5f,
+        context.bounds.width * contentScale,
+        context.bounds.height * contentScale,
+    };
     if (innerFrame_) {
-        constexpr float inset = 5.0f;
+        const float inset = 5.0f * contentScale;
         target = RectF{target.x + inset, target.y + inset,
             std::max(0.0f, target.width - inset * 2.0f), std::max(0.0f, target.height - inset * 2.0f)};
     }
     if (target.width <= 0.0f || target.height <= 0.0f) return;
 
-    const D2D1_SIZE_F image = bitmap_->GetSize();
+    const D2D1_SIZE_F image = bitmap->GetSize();
     if (image.width <= 0.0f || image.height <= 0.0f) return;
     const PhotoLayoutResult layout = PhotoLayout::Calculate(
         SizeF{image.width, image.height}, target,
@@ -114,7 +134,7 @@ void PhotoWidget::Render(const WidgetRenderContext& context) const {
     const D2D1_RECT_F source = D2D1::RectF(layout.source.Left(), layout.source.Top(),
         layout.source.Right(), layout.source.Bottom());
 
-    context.renderTarget.DrawBitmap(bitmap_.Get(), &destination, 1.0f,
+    context.renderTarget.DrawBitmap(bitmap, &destination, 1.0f,
         D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &source);
     if (innerFrame_) {
         Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> frameBrush;
@@ -147,8 +167,7 @@ void PhotoWidget::RestoreState(const WidgetState& state) {
     const auto path = state.find(L"assetPath");
     if (path != state.end() && path->second != assetPath_) {
         assetPath_ = path->second;
-        bitmap_.Reset();
-        loadAttempted_ = false;
+        bitmapCache_.clear();
     }
     const auto fit = state.find(L"fitMode");
     if (fit != state.end() && (fit->second == L"fill" || fit->second == L"fit")) fitMode_ = fit->second;
@@ -165,7 +184,9 @@ WidgetDescriptor PhotoWidget::Descriptor(std::filesystem::path assetDirectory) {
         .defaultGridSize = GridSize{4, 3},
         .minimumGridSize = GridSize{2, 2},
         .maximumGridSize = GridSize{8, 6},
-        .capabilities = WidgetCapability::Configurable | WidgetCapability::Scalable,
+        .capabilities = WidgetCapability::Configurable | WidgetCapability::Scalable |
+            WidgetCapability::Resizable | WidgetCapability::Duplicatable |
+            WidgetCapability::PassiveClickThrough,
         .factory = [assetDirectory = std::move(assetDirectory)] {
             return std::make_unique<PhotoWidget>(assetDirectory);
         },

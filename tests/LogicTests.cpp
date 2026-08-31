@@ -52,7 +52,8 @@ ws::WidgetRegistry CreateRegistry() {
         .defaultGridSize = ws::GridSize{3, 2},
         .minimumGridSize = ws::GridSize{1, 1},
         .maximumGridSize = ws::GridSize{6, 4},
-        .capabilities = ws::WidgetCapability::Configurable,
+        .capabilities = ws::WidgetCapability::Configurable | ws::WidgetCapability::Resizable |
+            ws::WidgetCapability::Duplicatable | ws::WidgetCapability::PassiveClickThrough,
         .factory = [] { return std::make_unique<TestWidget>(); },
     }), "registry should accept valid descriptor");
     return registry;
@@ -65,6 +66,12 @@ void TestRegistryAndPlacement() {
         .defaultGridSize = {1, 1}, .minimumGridSize = {1, 1}, .maximumGridSize = {1, 1},
         .factory = [] { return std::make_unique<TestWidget>(); },
     }), "registry should reject duplicate type IDs");
+    Require(registry.Register(ws::WidgetDescriptor{
+        .typeId = "fixed", .displayName = L"Fixed", .description = L"Non-duplicatable test widget",
+        .defaultGridSize = {1, 1}, .minimumGridSize = {1, 1}, .maximumGridSize = {1, 1},
+        .capabilities = ws::WidgetCapability::PassiveClickThrough,
+        .factory = [] { return std::make_unique<TestWidget>(); },
+    }), "registry should accept a non-duplicatable descriptor");
 
     ws::WidgetScene scene(registry);
     std::set<std::string> identifiers;
@@ -88,6 +95,9 @@ void TestRegistryAndPlacement() {
     Require(scene.SetWidgetLocked(duplicate->instanceId, true) && duplicate->locked,
         "generic lock operation should work");
     Require(scene.RemoveWidget(duplicate->instanceId), "generic removal should work");
+    ws::WidgetInstance* fixed = scene.CreateWidget("fixed", L"DISPLAY-A");
+    Require(fixed && scene.DuplicateWidget(fixed->instanceId) == nullptr,
+        "duplicate should respect the descriptor capability");
 
     ws::WidgetInstance* otherMonitor = scene.CreateWidget("test", L"DISPLAY-B");
     Require(otherMonitor != nullptr, "widget creation on a second monitor should succeed");
@@ -127,7 +137,7 @@ void TestMonitorMigration() {
         .dpi = 144,
         .primary = true,
     }});
-    Require(topology.MigrateMissingWidgets(scene, 12, 7) == 1,
+    Require(topology.ReconcileWidgets(scene, 12, 7) == 1,
         "only widgets assigned to missing monitors should migrate");
     Require(missing->monitorId == L"DISPLAY-PRIMARY" && present->monitorId == L"DISPLAY-PRIMARY",
         "missing widgets should migrate to the primary monitor");
@@ -137,6 +147,40 @@ void TestMonitorMigration() {
     Require(missing->free.x == 0.0f && missing->free.y == 0.0f &&
         missing->free.width == 800.0f && missing->free.height == 600.0f,
         "migrated free geometry should clamp to the destination work area");
+
+    present->layoutMode = ws::LayoutMode::Free;
+    present->free = {700.0f, 500.0f, 400.0f, 300.0f};
+    Require(topology.ReconcileWidgets(scene, 12, 7) == 1,
+        "a work-area change should reconcile an existing monitor association");
+    Require(present->free.x == 400.0f && present->free.y == 300.0f &&
+        present->free.width == 400.0f && present->free.height == 300.0f,
+        "free geometry should remain wholly inside the current monitor work area");
+}
+
+void TestSelectionAndLocking() {
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    ws::WidgetInstance* first = scene.CreateWidget("test", L"DISPLAY-A");
+    Require(first, "first selection fixture should be created");
+    const std::string firstId = first->instanceId;
+    ws::WidgetInstance* second = scene.CreateWidget("test", L"DISPLAY-A");
+    Require(second, "second selection fixture should be created");
+    const std::string secondId = second->instanceId;
+
+    scene.Select(firstId, false);
+    Require(scene.SelectionCount() == 1 && scene.PrimarySelection() == firstId,
+        "plain selection should replace the previous selection");
+    scene.Select(secondId, true);
+    Require(scene.SelectionCount() == 2 && scene.PrimarySelection() == secondId,
+        "additive selection should preserve the first widget and promote the new primary");
+    scene.Select(secondId, true);
+    Require(scene.SelectionCount() == 1 && scene.PrimarySelection() == firstId,
+        "additive selection should toggle an existing selection and promote a remaining primary");
+
+    Require(scene.SetWidgetLocked(firstId, true), "generic locking should find the selected widget");
+    const ws::WidgetInstance* locked = scene.Find(firstId);
+    Require(locked && locked->selected && locked->locked,
+        "locking should not clear selection or remove the widget");
 }
 
 void TestWidgetWindowPlacement() {
@@ -153,6 +197,10 @@ void TestWidgetWindowPlacement() {
         .pixelY = 120,
         .pixelWidth = 1920,
         .pixelHeight = 1080,
+        .monitorPixelX = -1920,
+        .monitorPixelY = 0,
+        .monitorPixelWidth = 1920,
+        .monitorPixelHeight = 1080,
         .dpi = 144,
     };
     const ws::GridLayout grid;
@@ -207,6 +255,21 @@ void TestSerialization() {
         "malformed JSON should be rejected");
     Require(!ws::SceneJsonCodec::Decode("{\"schemaVersion\":99,\"widgets\":[]}", error),
         "unknown schema versions should be rejected safely");
+    std::string invalidUtf8 =
+        "{\"schemaVersion\":1,\"widgets\":[{\"instanceId\":\"widget-";
+    invalidUtf8.push_back(static_cast<char>(0xFF));
+    invalidUtf8 +=
+        "\",\"typeId\":\"test\",\"monitorId\":\"primary\",\"grid\":{\"column\":0,"
+        "\"row\":0,\"columnSpan\":1,\"rowSpan\":1}}]}";
+    Require(!ws::SceneJsonCodec::Decode(invalidUtf8, error),
+        "invalid UTF-8 identifiers should be rejected during load rather than breaking a later save");
+    const auto migrated = ws::SceneJsonCodec::Decode(
+        "{\"schemaVersion\":0,\"widgets\":[{\"instanceId\":\"legacy-clock\","
+        "\"typeId\":\"clock\",\"grid\":{\"column\":0,\"row\":0,"
+        "\"columnSpan\":4,\"rowSpan\":2},\"state\":{}}]}", error);
+    Require(migrated && migrated->schemaVersion == ws::SceneJsonCodec::kCurrentSchemaVersion &&
+        migrated->widgets.front().monitorId == L"primary",
+        "schema version 0 should migrate missing monitor association to the primary display");
 }
 
 void TestAuthoredLayout() {
@@ -268,6 +331,12 @@ void TestAtomicStoreAndRestore() {
         "loaded widget should restore through the registry");
     Require(scene.Widgets().front().instanceId == changed.instanceId,
         "restore should preserve instance ID");
+
+    changed.instanceId = "oversized-restored-widget";
+    changed.grid = {0, 0, 99, 99};
+    ws::WidgetInstance* clamped = scene.RestoreWidget(changed);
+    Require(clamped && clamped->grid.columnSpan == 6 && clamped->grid.rowSpan == 4,
+        "restore should clamp grid spans to descriptor maximums");
 }
 
 void TestClockStateAndScheduling() {
@@ -275,18 +344,33 @@ void TestClockStateAndScheduling() {
     clock.RestoreState({
         {L"use24Hour", L"false"},
         {L"showSeconds", L"true"},
+        {L"showDate", L"false"},
         {L"showDivider", L"false"},
         {L"dateFormat", L"compact"},
+        {L"fontFamily", L"Bahnschrift"},
     });
     const ws::WidgetState state = clock.SaveState();
     Require(state.at(L"use24Hour") == L"false" && state.at(L"showSeconds") == L"true" &&
-        state.at(L"showDivider") == L"false" && state.at(L"dateFormat") == L"compact",
+        state.at(L"showDate") == L"false" && state.at(L"showDivider") == L"false" &&
+        state.at(L"dateFormat") == L"compact" && state.at(L"fontFamily") == L"Bahnschrift",
         "clock settings should round-trip through widget state");
     const auto now = std::chrono::system_clock::now();
     const auto next = clock.NextUpdateTime();
     Require(next.has_value() && *next > now && *next - now <= std::chrono::seconds(1),
         "seconds mode should schedule the next displayed-second boundary");
-    Require(clock.Settings().size() == 4, "clock should expose generic setting definitions");
+    Require(clock.Settings().size() == 6, "clock should expose generic setting definitions");
+
+    ws::WidgetRegistry registry;
+    Require(registry.Register(ws::ClockWidget::Descriptor()), "clock descriptor should register for restore test");
+    ws::WidgetScene scene(registry);
+    ws::WidgetPersistenceRecord record{};
+    record.instanceId = "clock-future-state";
+    record.typeId = "clock";
+    record.widgetState = {{L"use24Hour", L"false"}, {L"futureOption", L"preserve-me"}};
+    Require(scene.RestoreWidget(record) != nullptr, "clock should restore from persisted state");
+    const ws::WidgetSceneSnapshot snapshot = scene.Snapshot();
+    Require(snapshot.size() == 1 && snapshot.front().widgetState.at(L"futureOption") == L"preserve-me",
+        "unknown future widget settings should survive restore and save");
 }
 
 void TestCalendarModel() {
@@ -359,6 +443,16 @@ void TestFreeLayoutAndAlignment() {
         target.width == reference.width && target.height == reference.height,
         "match-both should copy primary dimensions");
 
+    ws::FreePlacement lockedTarget{200.0f, 200.0f, 20.0f, 20.0f};
+    std::array lockedItems{
+        ws::AlignmentItem{&reference, true, false},
+        ws::AlignmentItem{&lockedTarget, false, true},
+    };
+    Require(!ws::Alignment::Apply(
+            lockedItems, ws::AlignmentOperation::Left, {0.0f, 0.0f, 500.0f, 500.0f}) &&
+        lockedTarget.x == 200.0f,
+        "alignment should leave locked selected widgets stationary");
+
     ws::FreePlacement first{0.0f, 0.0f, 10.0f, 10.0f};
     ws::FreePlacement middle{40.0f, 0.0f, 10.0f, 10.0f};
     ws::FreePlacement last{100.0f, 0.0f, 10.0f, 10.0f};
@@ -383,6 +477,7 @@ int main() {
     try {
         TestRegistryAndPlacement();
         TestMonitorMigration();
+        TestSelectionAndLocking();
         TestWidgetWindowPlacement();
         TestSerialization();
         TestAuthoredLayout();

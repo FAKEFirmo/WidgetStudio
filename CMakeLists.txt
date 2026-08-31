@@ -31,6 +31,8 @@ add_executable(WidgetStudio WIN32
     src/persistence/SceneStore.cpp
     src/persistence/AssetLibrary.cpp
     src/rendering/Renderer.cpp
+    src/rendering/RenderingResources.cpp
+    src/rendering/WallpaperCache.cpp
     src/scene/WidgetScene.cpp
     src/widgets/BuiltInWidgets.cpp
     src/widgets/CalendarWidget.cpp

@@ -44,7 +44,8 @@ WidgetDescriptor DebugWidget::Descriptor() {
         .defaultGridSize = GridSize{3, 2},
         .minimumGridSize = GridSize{2, 1},
         .maximumGridSize = GridSize{6, 4},
-        .capabilities = WidgetCapability::Scalable,
+        .capabilities = WidgetCapability::Scalable | WidgetCapability::Resizable |
+            WidgetCapability::Duplicatable | WidgetCapability::PassiveClickThrough,
         .factory = [] { return std::make_unique<DebugWidget>(); },
     };
 }

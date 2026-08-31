@@ -333,7 +333,7 @@ WidgetPersistenceRecord ReadWidget(JsonReader& reader) {
         else if (key == "state") record.widgetState = ReadState(reader);
         else reader.SkipValue();
     });
-    if (record.instanceId.empty() || record.typeId.empty() || record.monitorId.empty() ||
+    if (record.instanceId.empty() || record.typeId.empty() ||
         !std::isfinite(record.contentScale) || record.contentScale <= 0.0f) {
         throw std::runtime_error("Widget record is missing required values");
     }
@@ -431,7 +431,16 @@ std::optional<DecodedScene> SceneJsonCodec::Decode(
         });
         if (!reader.AtEnd()) throw std::runtime_error("Trailing JSON content");
         if (!hasVersion || !hasWidgets) throw std::runtime_error("Missing scene schema fields");
-        if (scene.schemaVersion != kCurrentSchemaVersion) throw std::runtime_error("Unsupported scene schema version");
+        if (scene.schemaVersion < 0 || scene.schemaVersion > kCurrentSchemaVersion) {
+            throw std::runtime_error("Unsupported scene schema version");
+        }
+        for (auto& widget : scene.widgets) {
+            static_cast<void>(FromUtf8(widget.instanceId));
+            static_cast<void>(FromUtf8(widget.typeId));
+            if (scene.schemaVersion == 0 && widget.monitorId.empty()) widget.monitorId = L"primary";
+            if (widget.monitorId.empty()) throw std::runtime_error("Widget record is missing required values");
+        }
+        scene.schemaVersion = kCurrentSchemaVersion;
         std::set<std::string> instanceIds;
         for (const auto& widget : scene.widgets) {
             if (!instanceIds.insert(widget.instanceId).second) throw std::runtime_error("Duplicate widget instance ID");

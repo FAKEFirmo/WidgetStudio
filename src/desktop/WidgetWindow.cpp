@@ -37,6 +37,8 @@ bool WidgetWindow::Create(DesktopHost& host, HINSTANCE instance, std::string ins
         kWidgetWindowClassName, L"WidgetStudio widget", WS_POPUP,
         0, 0, 1, 1, nullptr, nullptr, instance_, this);
     if (!hwnd_) return false;
+    renderer_.SetWallpaperCache(host.Wallpaper());
+    renderer_.SetSharedResources(host.Rendering());
     if (FAILED(renderer_.Initialize(hwnd_)) || !UpdatePlacement(monitor)) {
         Close();
         return false;
@@ -68,6 +70,17 @@ bool WidgetWindow::UpdatePlacement(const MonitorDescriptor& monitor) {
     widgetBounds_ = placement.widgetDips;
     windowBounds_ = placement.windowDips;
     widgetBoundsInWindow_ = placement.widgetInWindowDips;
+    const float pixelsToDips = 96.0f / static_cast<float>(dpi_);
+    wallpaperBounds_ = {
+        static_cast<float>(placement.screenX - monitor.monitorPixelX) * pixelsToDips,
+        static_cast<float>(placement.screenY - monitor.monitorPixelY) * pixelsToDips,
+        static_cast<float>(placement.pixelWidth) * pixelsToDips,
+        static_cast<float>(placement.pixelHeight) * pixelsToDips,
+    };
+    wallpaperDesktopSize_ = {
+        static_cast<float>(std::max(1, monitor.monitorPixelWidth)) * pixelsToDips,
+        static_cast<float>(std::max(1, monitor.monitorPixelHeight)) * pixelsToDips,
+    };
     const DesktopTargetBounds target{
         placement.screenX,
         placement.screenY,
@@ -91,14 +104,19 @@ void WidgetWindow::SetEditMode(bool enabled) {
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
-void WidgetWindow::Invalidate(bool reloadWallpaper) {
+void WidgetWindow::Invalidate() {
     if (!hwnd_) return;
-    if (reloadWallpaper) static_cast<void>(renderer_.ReloadWallpaper());
     InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
 void WidgetWindow::Reattach() {
     if (hwnd_) backend_.Reattach(hwnd_);
+}
+
+void WidgetWindow::SetZOrderAfter(HWND insertAfter) {
+    if (!hwnd_) return;
+    SetWindowPos(hwnd_, insertAfter, 0, 0, 0, 0,
+        SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOSENDCHANGING);
 }
 
 void WidgetWindow::Paint() {
@@ -107,7 +125,7 @@ void WidgetWindow::Paint() {
     const WidgetInstance* widget = host_ ? host_->Scene().Find(instanceId_) : nullptr;
     const HRESULT result = widget
         ? renderer_.RenderWidget(*widget, host_->EditMode(),
-            windowBounds_, monitorSize_, widgetBoundsInWindow_)
+            wallpaperBounds_, wallpaperDesktopSize_, widgetBoundsInWindow_)
         : S_FALSE;
     EndPaint(hwnd_, &paint);
     if (result == D2DERR_RECREATE_TARGET) InvalidateRect(hwnd_, nullptr, FALSE);
@@ -140,6 +158,11 @@ LRESULT WidgetWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) 
         return 0;
     case WM_ERASEBKGND:
         return 1;
+    case WM_DPICHANGED:
+        dpi_ = std::max(96u, static_cast<UINT>(HIWORD(wParam)));
+        renderer_.SetDpi(static_cast<float>(dpi_));
+        host_->RequestMonitorRefresh();
+        return 0;
     case WM_LBUTTONDOWN:
         host_->HandleWidgetLeftDown(*this, wParam, lParam);
         return 0;

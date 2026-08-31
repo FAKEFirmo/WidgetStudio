@@ -26,6 +26,7 @@ public:
 
     [[nodiscard]] WidgetInstance* Find(std::string_view instanceId) noexcept;
     [[nodiscard]] const WidgetInstance* Find(std::string_view instanceId) const noexcept;
+    [[nodiscard]] const WidgetDescriptor* DescriptorFor(std::string_view instanceId) const noexcept;
 
     [[nodiscard]] std::optional<std::string> HitTest(
         PointF point,

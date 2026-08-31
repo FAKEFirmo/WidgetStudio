@@ -7,6 +7,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <utility>
+#include <vector>
 #include <wrl/client.h>
 
 namespace ws {
@@ -23,8 +24,16 @@ public:
     [[nodiscard]] static WidgetDescriptor Descriptor(std::filesystem::path assetDirectory);
 
 private:
-    HRESULT EnsureBitmap(const WidgetRenderContext& context) const;
+    [[nodiscard]] ID2D1Bitmap* BitmapFor(const WidgetRenderContext& context) const;
     [[nodiscard]] std::filesystem::path ResolvedAssetPath() const;
+
+    struct BitmapCacheEntry {
+        ID2D1RenderTarget* target{};
+        std::uint64_t resourceGeneration{};
+        std::wstring path;
+        bool loadAttempted{false};
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    };
 
     std::filesystem::path assetDirectory_;
     std::wstring assetPath_;
@@ -32,11 +41,7 @@ private:
     float focalX_{0.5f};
     float focalY_{0.5f};
     bool innerFrame_{false};
-    mutable std::wstring cachedPath_;
-    mutable ID2D1RenderTarget* cachedTarget_{};
-    mutable std::uint64_t cachedGeneration_{};
-    mutable bool loadAttempted_{false};
-    mutable Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap_;
+    mutable std::vector<BitmapCacheEntry> bitmapCache_;
 };
 
 } // namespace ws

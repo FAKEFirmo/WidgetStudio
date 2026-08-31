@@ -5,7 +5,9 @@
 
 #include <d2d1.h>
 #include <dwrite.h>
+#include <cstdint>
 #include <memory>
+#include <vector>
 #include <wrl/client.h>
 
 namespace ws {
@@ -30,13 +32,20 @@ public:
 
 private:
     HRESULT EnsureTextFormats(IDWriteFactory& factory) const;
-    HRESULT EnsureArtwork(const WidgetRenderContext& context, const MediaSessionSnapshot& snapshot) const;
+    [[nodiscard]] ID2D1Bitmap* ArtworkFor(
+        const WidgetRenderContext& context, const MediaSessionSnapshot& snapshot) const;
+
+    struct ArtworkCacheEntry {
+        ID2D1RenderTarget* target{};
+        std::uint64_t resourceGeneration{};
+        std::uint64_t artworkRevision{};
+        bool loadAttempted{false};
+        Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
+    };
 
     std::shared_ptr<MediaSessionService> mediaSession_;
     mutable std::optional<std::size_t> currentProfile_;
-    mutable std::uint64_t cachedArtworkRevision_{};
-    mutable std::uint64_t cachedResourceGeneration_{};
-    mutable Microsoft::WRL::ComPtr<ID2D1Bitmap> artwork_;
+    mutable std::vector<ArtworkCacheEntry> artworkCache_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> titleFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> metadataFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;

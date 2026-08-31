@@ -59,7 +59,6 @@ int Application::Run(HINSTANCE instance, int showCommand) {
         // Keep every COM-owning subsystem inside this scope so its interfaces
         // are released before the matching CoUninitialize call.
         auto mediaSession = std::make_shared<MediaSessionService>();
-        static_cast<void>(mediaSession->Initialize());
         WidgetRegistry registry;
         if (!RegisterBuiltInWidgets(registry, mediaSession)) {
             MessageBoxW(nullptr, L"Widget Studio could not register its built-in widget types.",

@@ -1,7 +1,9 @@
 #include "rendering/Renderer.h"
 #include "layout/OuterLayout.h"
+#include "rendering/RenderingResources.h"
 #include "rendering/WidgetRenderContext.h"
 #include "rendering/WidgetVisualStyle.h"
+#include "rendering/WallpaperCache.h"
 
 #include <algorithm>
 #include <array>
@@ -34,74 +36,42 @@ bool SameRect(RectF left, RectF right) noexcept {
 
 } // namespace
 
+Renderer::Renderer(std::shared_ptr<WallpaperCache> wallpaperCache,
+    std::shared_ptr<RenderingResources> resources)
+    : resources_(std::move(resources)), wallpaperCache_(std::move(wallpaperCache)) {}
+
+void Renderer::SetWallpaperCache(std::shared_ptr<WallpaperCache> wallpaperCache) {
+    if (!wallpaperCache || wallpaperCache_ == wallpaperCache) return;
+    wallpaperCache_ = std::move(wallpaperCache);
+    wallpaperBitmap_.Reset();
+    glassCache_.clear();
+    wallpaperRevision_ = 0;
+}
+
+void Renderer::SetSharedResources(std::shared_ptr<RenderingResources> resources) {
+    if (!resources || resources_ == resources) return;
+    DiscardDeviceResources();
+    resources_ = std::move(resources);
+}
+
 HRESULT Renderer::Initialize(HWND hwnd) {
     hwnd_ = hwnd;
+    if (!wallpaperCache_) wallpaperCache_ = std::make_shared<WallpaperCache>();
+    if (!resources_) resources_ = std::make_shared<RenderingResources>();
     dpi_ = static_cast<float>(GetDpiForWindow(hwnd_));
     if (dpi_ <= 0.0f) {
         dpi_ = 96.0f;
     }
 
-    HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, d2dFactory_.GetAddressOf());
-    if (FAILED(hr)) return hr;
-
-    hr = DWriteCreateFactory(
-        DWRITE_FACTORY_TYPE_SHARED,
-        __uuidof(IDWriteFactory),
-        reinterpret_cast<IUnknown**>(dwriteFactory_.GetAddressOf()));
-    if (FAILED(hr)) return hr;
-
-    hr = CoCreateInstance(
-        CLSID_WICImagingFactory,
-        nullptr,
-        CLSCTX_INPROC_SERVER,
-        IID_PPV_ARGS(wicFactory_.GetAddressOf()));
-    if (FAILED(hr)) return hr;
-
-    hr = dwriteFactory_->CreateTextFormat(
-        L"Segoe UI Variable",
-        nullptr,
-        DWRITE_FONT_WEIGHT_SEMI_BOLD,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        18.0f,
-        L"en-us",
-        labelFormat_.GetAddressOf());
-    if (FAILED(hr)) {
-        hr = dwriteFactory_->CreateTextFormat(
-            L"Segoe UI",
-            nullptr,
-            DWRITE_FONT_WEIGHT_SEMI_BOLD,
-            DWRITE_FONT_STYLE_NORMAL,
-            DWRITE_FONT_STRETCH_NORMAL,
-            18.0f,
-            L"en-us",
-            labelFormat_.GetAddressOf());
-    }
-    if (FAILED(hr)) return hr;
-
-    hr = dwriteFactory_->CreateTextFormat(
-        L"Segoe UI",
-        nullptr,
-        DWRITE_FONT_WEIGHT_NORMAL,
-        DWRITE_FONT_STYLE_NORMAL,
-        DWRITE_FONT_STRETCH_NORMAL,
-        11.0f,
-        L"en-us",
-        smallFormat_.GetAddressOf());
-    if (FAILED(hr)) return hr;
-
-    hr = labelFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    if (FAILED(hr)) return hr;
-    hr = smallFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    HRESULT hr = resources_->Initialize();
     if (FAILED(hr)) return hr;
 
     hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
 
     // Wallpaper loading is optional. A solid fallback is rendered if Windows
-    // does not expose a directly decodable wallpaper path (for example some
-    // slideshow/theme configurations).
-    ReloadWallpaper();
+    // does not expose a directly decodable wallpaper path.
+    static_cast<void>(wallpaperCache_->Initialize());
     return S_OK;
 }
 
@@ -120,7 +90,7 @@ HRESULT Renderer::CreateDeviceResources() {
         static_cast<UINT32>(std::max<LONG>(1, rc.right - rc.left)),
         static_cast<UINT32>(std::max<LONG>(1, rc.bottom - rc.top)));
 
-    const HRESULT hr = d2dFactory_->CreateHwndRenderTarget(
+    const HRESULT hr = resources_->D2DFactory()->CreateHwndRenderTarget(
         D2D1::RenderTargetProperties(),
         D2D1::HwndRenderTargetProperties(hwnd_, size),
         renderTarget_.GetAddressOf());
@@ -134,6 +104,7 @@ HRESULT Renderer::CreateDeviceResources() {
 HRESULT Renderer::Resize(UINT width, UINT height) {
     if (!renderTarget_) return S_OK;
     glassCache_.clear();
+    wallpaperBitmap_.Reset();
     return renderTarget_->Resize(D2D1::SizeU(std::max(1u, width), std::max(1u, height)));
 }
 
@@ -143,58 +114,54 @@ void Renderer::SetDpi(float dpi) noexcept {
         renderTarget_->SetDpi(dpi_, dpi_);
     }
     glassCache_.clear();
+    wallpaperBitmap_.Reset();
 }
 
 HRESULT Renderer::ReloadWallpaper() {
     wallpaperBitmap_.Reset();
     glassCache_.clear();
-    ++wallpaperRevision_;
-
-    std::array<wchar_t, MAX_PATH> path{};
-    if (!SystemParametersInfoW(SPI_GETDESKWALLPAPER, static_cast<UINT>(path.size()), path.data(), 0)) {
-        return HRESULT_FROM_WIN32(GetLastError());
-    }
-
-    if (path[0] == L'\0') {
-        return S_FALSE;
-    }
-
-    return LoadBitmapFromFile(path.data());
+    return wallpaperCache_->Reload();
 }
 
-HRESULT Renderer::LoadBitmapFromFile(const std::wstring& path) {
-    if (!renderTarget_) {
-        const HRESULT hr = CreateDeviceResources();
-        if (FAILED(hr)) return hr;
+HRESULT Renderer::EnsureWallpaperBitmap() {
+    if (!wallpaperCache_ || !wallpaperCache_->Bitmap()) return S_FALSE;
+    if (wallpaperRevision_ != wallpaperCache_->Revision()) {
+        wallpaperBitmap_.Reset();
+        glassCache_.clear();
+        wallpaperRevision_ = wallpaperCache_->Revision();
     }
+    if (wallpaperBitmap_) return S_OK;
 
-    Microsoft::WRL::ComPtr<IWICBitmapDecoder> decoder;
-    HRESULT hr = wicFactory_->CreateDecoderFromFilename(
-        path.c_str(),
-        nullptr,
-        GENERIC_READ,
-        WICDecodeMetadataCacheOnLoad,
-        decoder.GetAddressOf());
-    if (FAILED(hr)) return hr;
-
-    Microsoft::WRL::ComPtr<IWICBitmapFrameDecode> frame;
-    hr = decoder->GetFrame(0, frame.GetAddressOf());
-    if (FAILED(hr)) return hr;
-
-    Microsoft::WRL::ComPtr<IWICFormatConverter> converter;
-    hr = wicFactory_->CreateFormatConverter(converter.GetAddressOf());
-    if (FAILED(hr)) return hr;
-
-    hr = converter->Initialize(
-        frame.Get(),
-        GUID_WICPixelFormat32bppPBGRA,
-        WICBitmapDitherTypeNone,
-        nullptr,
-        0.0,
-        WICBitmapPaletteTypeMedianCut);
-    if (FAILED(hr)) return hr;
-
-    return renderTarget_->CreateBitmapFromWicBitmap(converter.Get(), nullptr, wallpaperBitmap_.GetAddressOf());
+    UINT sourceWidth{};
+    UINT sourceHeight{};
+    HRESULT result = wallpaperCache_->Bitmap()->GetSize(&sourceWidth, &sourceHeight);
+    if (FAILED(result) || sourceWidth == 0 || sourceHeight == 0) return FAILED(result) ? result : E_FAIL;
+    const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
+    const D2D1_SIZE_F desktopSize = wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f
+        ? D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height) : targetSize;
+    const D2D1_RECT_F fullSource = WallpaperSourceRect(
+        desktopSize, D2D1::SizeF(static_cast<float>(sourceWidth), static_cast<float>(sourceHeight)));
+    D2D1_RECT_F region = fullSource;
+    if (wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f) {
+        const float scaleX = (fullSource.right - fullSource.left) / std::max(1.0f, desktopSize.width);
+        const float scaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, desktopSize.height);
+        region = D2D1::RectF(
+            fullSource.left + wallpaperWindowBounds_.Left() * scaleX,
+            fullSource.top + wallpaperWindowBounds_.Top() * scaleY,
+            fullSource.left + wallpaperWindowBounds_.Right() * scaleX,
+            fullSource.top + wallpaperWindowBounds_.Bottom() * scaleY);
+    }
+    const int left = std::clamp(static_cast<int>(std::floor(region.left)), 0, static_cast<int>(sourceWidth) - 1);
+    const int top = std::clamp(static_cast<int>(std::floor(region.top)), 0, static_cast<int>(sourceHeight) - 1);
+    const int right = std::clamp(static_cast<int>(std::ceil(region.right)), left + 1, static_cast<int>(sourceWidth));
+    const int bottom = std::clamp(static_cast<int>(std::ceil(region.bottom)), top + 1, static_cast<int>(sourceHeight));
+    const WICRect crop{left, top, right - left, bottom - top};
+    Microsoft::WRL::ComPtr<IWICBitmapClipper> clipper;
+    result = resources_->WicFactory()->CreateBitmapClipper(clipper.GetAddressOf());
+    if (FAILED(result)) return result;
+    result = clipper->Initialize(wallpaperCache_->Bitmap(), &crop);
+    if (FAILED(result)) return result;
+    return renderTarget_->CreateBitmapFromWicBitmap(clipper.Get(), nullptr, wallpaperBitmap_.GetAddressOf());
 }
 
 D2D1_RECT_F Renderer::ToD2D(RectF rect) const noexcept {
@@ -205,7 +172,7 @@ void Renderer::DrawWallpaper() {
     const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
     const D2D1_RECT_F destination = D2D1::RectF(0.0f, 0.0f, targetSize.width, targetSize.height);
 
-    if (!wallpaperBitmap_) {
+    if (EnsureWallpaperBitmap() != S_OK || !wallpaperBitmap_) {
         renderTarget_->Clear(Color(0.92f, 0.91f, 0.89f));
         return;
     }
@@ -216,19 +183,7 @@ void Renderer::DrawWallpaper() {
         return;
     }
 
-    D2D1_RECT_F source = WallpaperSourceRect(targetSize, bitmapSize);
-    if (wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f &&
-        wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f) {
-        const D2D1_RECT_F desktopSource = WallpaperSourceRect(
-            D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height), bitmapSize);
-        const float scaleX = (desktopSource.right - desktopSource.left) / wallpaperDesktopSize_.width;
-        const float scaleY = (desktopSource.bottom - desktopSource.top) / wallpaperDesktopSize_.height;
-        source = D2D1::RectF(
-            desktopSource.left + wallpaperWindowBounds_.Left() * scaleX,
-            desktopSource.top + wallpaperWindowBounds_.Top() * scaleY,
-            desktopSource.left + wallpaperWindowBounds_.Right() * scaleX,
-            desktopSource.top + wallpaperWindowBounds_.Bottom() * scaleY);
-    }
+    const D2D1_RECT_F source = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
 
     renderTarget_->DrawBitmap(
         wallpaperBitmap_.Get(),
@@ -257,23 +212,13 @@ void Renderer::DrawGlass(const WidgetInstance& widget, RectF rect) {
         cache.blurRadius != widget.appearance.blurRadius || !SameRect(cache.targetRect, targetRect)) {
         const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
         const D2D1_SIZE_F bitmapSize = wallpaperBitmap_->GetSize();
-        const D2D1_SIZE_F desktopSize = wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f
-            ? D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height) : targetSize;
-        const D2D1_RECT_F fullSource = WallpaperSourceRect(desktopSize, bitmapSize);
-        const bool windowRegion = wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f;
-        const float windowX = windowRegion ? wallpaperWindowBounds_.x : 0.0f;
-        const float windowY = windowRegion ? wallpaperWindowBounds_.y : 0.0f;
-        const float desktopScaleX = (fullSource.right - fullSource.left) / std::max(1.0f, desktopSize.width);
-        const float desktopScaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, desktopSize.height);
-        const float localScaleX = windowRegion ? desktopScaleX :
-            (fullSource.right - fullSource.left) / std::max(1.0f, targetSize.width);
-        const float localScaleY = windowRegion ? desktopScaleY :
-            (fullSource.bottom - fullSource.top) / std::max(1.0f, targetSize.height);
+        const float sourceScaleX = bitmapSize.width / std::max(1.0f, targetSize.width);
+        const float sourceScaleY = bitmapSize.height / std::max(1.0f, targetSize.height);
         const D2D1_RECT_F source = D2D1::RectF(
-            fullSource.left + windowX * desktopScaleX + targetRect.Left() * localScaleX,
-            fullSource.top + windowY * desktopScaleY + targetRect.Top() * localScaleY,
-            fullSource.left + windowX * desktopScaleX + targetRect.Right() * localScaleX,
-            fullSource.top + windowY * desktopScaleY + targetRect.Bottom() * localScaleY);
+            targetRect.Left() * sourceScaleX,
+            targetRect.Top() * sourceScaleY,
+            targetRect.Right() * sourceScaleX,
+            targetRect.Bottom() * sourceScaleY);
         const float downsample = std::clamp(1.0f + widget.appearance.blurRadius / 3.0f, 2.0f, 12.0f);
         const D2D1_SIZE_F smallSize = D2D1::SizeF(
             std::max(1.0f, targetRect.width / downsample),
@@ -295,7 +240,8 @@ void Renderer::DrawGlass(const WidgetInstance& widget, RectF rect) {
     Microsoft::WRL::ComPtr<ID2D1Layer> layer;
     const D2D1_ROUNDED_RECT rounded = D2D1::RoundedRect(
         ToD2D(rect), widget.appearance.cornerRadius, widget.appearance.cornerRadius);
-    const bool masked = SUCCEEDED(d2dFactory_->CreateRoundedRectangleGeometry(&rounded, mask.GetAddressOf())) &&
+    const bool masked = SUCCEEDED(resources_->D2DFactory()->CreateRoundedRectangleGeometry(
+            &rounded, mask.GetAddressOf())) &&
         SUCCEEDED(renderTarget_->CreateLayer(nullptr, layer.GetAddressOf()));
     if (masked) renderTarget_->PushLayer(
         D2D1::LayerParameters(D2D1::InfiniteRect(), mask.Get()), layer.Get());
@@ -358,19 +304,23 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
     renderTarget_->DrawRoundedRectangle(&rounded, borderBrush.Get(), WidgetVisualStyle::kBorderWidth);
 
     if (widget.content) {
+        const RectF contentBounds = WidgetVisualStyle::ContentBounds(rect);
+        const D2D1_RECT_F contentClip = ToD2D(contentBounds);
+        renderTarget_->PushAxisAlignedClip(&contentClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
         widget.content->Render(WidgetRenderContext{
             .renderTarget = *renderTarget_.Get(),
-            .d2dFactory = *d2dFactory_.Get(),
-            .dwriteFactory = *dwriteFactory_.Get(),
-            .wicFactory = *wicFactory_.Get(),
-            .titleFormat = *labelFormat_.Get(),
-            .detailFormat = *smallFormat_.Get(),
-            .bounds = WidgetVisualStyle::ContentBounds(rect),
+            .d2dFactory = *resources_->D2DFactory(),
+            .dwriteFactory = *resources_->DWriteFactory(),
+            .wicFactory = *resources_->WicFactory(),
+            .titleFormat = *resources_->LabelFormat(),
+            .detailFormat = *resources_->SmallFormat(),
+            .bounds = contentBounds,
             .instanceId = widget.instanceId,
             .contentScale = widget.contentScale,
             .lightAppearance = widget.appearance.mode == AppearanceMode::Light,
             .resourceGeneration = resourceGeneration_,
         });
+        renderTarget_->PopAxisAlignedClip();
     }
 
     if (editMode && widget.selected) {
@@ -401,7 +351,7 @@ void Renderer::DrawSelection(const WidgetInstance& widget, RectF rect) {
             D2D1_DASH_STYLE_DASH,
             0.0f,
         };
-        static_cast<void>(d2dFactory_->CreateStrokeStyle(
+        static_cast<void>(resources_->D2DFactory()->CreateStrokeStyle(
             properties, nullptr, 0, secondaryStroke.GetAddressOf()));
     }
     renderTarget_->DrawRoundedRectangle(
@@ -452,7 +402,6 @@ HRESULT Renderer::Render(
         if (FAILED(recreateResult)) {
             return recreateResult;
         }
-        ReloadWallpaper();
         return D2DERR_RECREATE_TARGET;
     }
     return hr;
@@ -460,6 +409,11 @@ HRESULT Renderer::Render(
 
 HRESULT Renderer::RenderWidget(const WidgetInstance& widget, bool editMode,
     RectF windowBoundsOnMonitor, SizeF monitorSize, RectF widgetBoundsInWindow) {
+    if (!SameRect(wallpaperWindowBounds_, windowBoundsOnMonitor) ||
+        wallpaperDesktopSize_.width != monitorSize.width || wallpaperDesktopSize_.height != monitorSize.height) {
+        wallpaperBitmap_.Reset();
+        glassCache_.clear();
+    }
     wallpaperWindowBounds_ = windowBoundsOnMonitor;
     wallpaperDesktopSize_ = monitorSize;
     HRESULT hr = CreateDeviceResources();
@@ -478,7 +432,6 @@ HRESULT Renderer::RenderWidget(const WidgetInstance& widget, bool editMode,
         DiscardDeviceResources();
         const HRESULT recreateResult = CreateDeviceResources();
         if (FAILED(recreateResult)) return recreateResult;
-        ReloadWallpaper();
         return D2DERR_RECREATE_TARGET;
     }
     return hr;

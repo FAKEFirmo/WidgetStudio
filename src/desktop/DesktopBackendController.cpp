@@ -126,13 +126,23 @@ bool DesktopBackendController::AttachConfigured(HWND host, DesktopTargetBounds t
 
 bool DesktopBackendController::UpdateTarget(HWND host, DesktopTargetBounds target) {
     target_ = target;
-    return backend_ ? backend_->Attach(host, target_) : AttachConfigured(host, target_);
+    if (!backend_) return AttachConfigured(host, target_);
+    if (backend_->Attach(host, target_)) return true;
+
+    // Explorer can replace the WorkerW hierarchy without delivering a usable
+    // target to this particular window. Drop the stale backend and perform the
+    // normal WorkerW-then-windowed selection again instead of remaining stuck.
+    backend_->Detach(host);
+    backend_.reset();
+    experimental_ = false;
+    return AttachConfigured(host, target_);
 }
 
 void DesktopBackendController::Reattach(HWND host) {
-    if (!experimental_) return;
-    backend_->Detach(host);
-    if (!backend_->Attach(host, target_)) AttachConfigured(host, target_);
+    if (backend_) backend_->Detach(host);
+    backend_.reset();
+    experimental_ = false;
+    static_cast<void>(AttachConfigured(host, target_));
 }
 
 void DesktopBackendController::Detach(HWND host) noexcept {
