@@ -76,6 +76,6 @@ WidgetStudio links only Windows system libraries. Its principal APIs are Win32/U
 - Direct wallpaper decoding depends on Windows exposing a decodable current-wallpaper path. A neutral surface is used if it does not.
 - Media metadata, artwork, and enabled transport commands depend on what the active Windows media session publishes.
 - The global `Ctrl+Alt+W` shortcut can be unavailable if another application has already registered it; tray commands remain available.
-- Application Control policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` currently requires an Enterprise signing level and intermittently authorizes Debug outputs while blocking the latest unsigned Release test and packaged executable hashes. Use an organization-approved signing or narrowly scoped allow solution; WidgetStudio does not weaken or bypass that policy.
+- Application Control policy `{0283ac0f-fff1-49ae-ada1-8a933130cad6}` currently requires an Enterprise signing level. Both clean CTests are authorized, while the latest unsigned Release GUI application is blocked from both its build-tree and packaged locations. Use an organization-approved signing or narrowly scoped allow solution; WidgetStudio does not weaken or bypass that policy.
 
 Current implementation evidence and every still-required runtime gate are tracked in [ACCEPTANCE.md](ACCEPTANCE.md). Do not treat the intended release path as final until that checklist has current Debug, Release, CTest, interactive Windows 11, and performance evidence.

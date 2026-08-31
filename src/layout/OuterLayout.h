@@ -17,6 +17,16 @@ public:
 
     [[nodiscard]] static FreePlacement MoveFreeToPoint(
         FreePlacement placement, PointF pointer, PointF dragOffset, RectF bounds) noexcept;
+
+    [[nodiscard]] static GridPlacement GridForRect(
+        RectF rect,
+        GridPlacement placement,
+        const GridLayout& grid,
+        const GridMetrics& metrics,
+        int minimumColumns,
+        int minimumRows,
+        int maximumColumns,
+        int maximumRows) noexcept;
 };
 
 } // namespace ws

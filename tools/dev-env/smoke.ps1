@@ -44,7 +44,6 @@ public static class WidgetStudioSmokeNative {
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr window);
-
     public static string ClassNameOf(IntPtr window) {
         if (window == IntPtr.Zero) return "";
         var name = new StringBuilder(256);
@@ -209,9 +208,60 @@ try {
         throw 'Widget Studio settings are not laid out below the desktop preview.'
     }
 
+    $configuredId = @($scene.widgets)[-1].instanceId
+    $layoutMode = [WidgetStudioSmokeNative]::GetDlgItem($studio, 209)
+    $contentScale = [WidgetStudioSmokeNative]::GetDlgItem($studio, 211)
+    $appearanceMode = [WidgetStudioSmokeNative]::GetDlgItem($studio, 212)
+    $glass = [WidgetStudioSmokeNative]::GetDlgItem($studio, 213)
+    $opacity = [WidgetStudioSmokeNative]::GetDlgItem($studio, 214)
+    $blur = [WidgetStudioSmokeNative]::GetDlgItem($studio, 215)
+    $radius = [WidgetStudioSmokeNative]::GetDlgItem($studio, 216)
+    $positionA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 217)
+    $positionB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 218)
+    $sizeA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 219)
+    $sizeB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 220)
+    $widgetCheck = [WidgetStudioSmokeNative]::GetDlgItem($studio, 224)
+    $applyUniversalButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 200)
+    $applyWidgetButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 202)
+    foreach ($control in @($layoutMode, $contentScale, $appearanceMode, $glass, $opacity,
+            $blur, $radius, $positionA, $positionB, $sizeA, $sizeB, $widgetCheck,
+            $applyUniversalButton, $applyWidgetButton)) {
+        if ($control -eq [IntPtr]::Zero) { throw 'Widget Studio is missing a stable settings control.' }
+    }
+    [void][WidgetStudioSmokeNative]::SendMessage($layoutMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
+    $layoutChanged = 209 -bor (1 -shl 16)
+    [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]$layoutChanged, $layoutMode)
+    [void][WidgetStudioSmokeNative]::SendMessage($appearanceMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage($glass, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 100
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $applyUniversalButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    $scene = Read-Scene $scenePath
+    $configured = @($scene.widgets | Where-Object { $_.instanceId -eq $configuredId })[0]
+    if (-not $configured -or $configured.layoutMode -ne 'free' -or
+        [double]$configured.free.width -le 100.0 -or [double]$configured.free.height -le 100.0 -or
+        $configured.appearance.mode -ne 'light' -or $configured.appearance.glass -ne $false) {
+        throw 'Widget Studio did not persist the converted free layout and appearance toggles.'
+    }
+
+    [void][WidgetStudioSmokeNative]::SendMessage($widgetCheck, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $applyWidgetButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    $scene = Read-Scene $scenePath
+    $configured = @($scene.widgets | Where-Object { $_.instanceId -eq $configuredId })[0]
+    if ($configured.state.use24Hour -ne 'false') {
+        throw 'Widget Studio did not apply the selected Clock-specific boolean setting.'
+    }
+
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]206, [IntPtr]::Zero)
     $scene = Wait-WidgetCount $scenePath ($initialWidgetCount + 5)
     $duplicatedCount = @($scene.widgets).Count
+    $duplicate = @($scene.widgets)[-1]
+    if ($duplicate.instanceId -eq $configuredId -or $duplicate.typeId -ne 'clock' -or
+        $duplicate.layoutMode -ne 'free' -or $duplicate.state.use24Hour -ne 'false' -or
+        $duplicate.appearance.mode -ne 'light' -or $duplicate.appearance.glass -ne $false) {
+        throw 'Widget Studio Duplicate did not preserve common and widget-specific state.'
+    }
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]207, [IntPtr]::Zero)
     $removeDeadline = [DateTime]::UtcNow.AddSeconds(5)
     do {
@@ -308,6 +358,9 @@ try {
         multipleInstancePassed = $true
         passiveHitTestingPassed = $true
         studioPreviewAboveSettings = $true
+        universalSettingsPassed = $true
+        widgetSpecificSettingsPassed = $true
+        duplicateStatePassed = $true
         studioDuplicateRemovePassed = $true
         lockAllPassed = $true
         restartRestorePassed = $true

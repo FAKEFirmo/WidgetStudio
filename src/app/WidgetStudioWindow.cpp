@@ -28,6 +28,23 @@ constexpr int kSettingCombo = 204;
 constexpr int kOpenLibrary = 205;
 constexpr int kDuplicateWidget = 206;
 constexpr int kDeleteWidget = 207;
+constexpr int kMonitorChoice = 208;
+constexpr int kLayoutMode = 209;
+constexpr int kLocked = 210;
+constexpr int kContentScale = 211;
+constexpr int kAppearanceMode = 212;
+constexpr int kGlass = 213;
+constexpr int kOpacity = 214;
+constexpr int kBlur = 215;
+constexpr int kRadius = 216;
+constexpr int kPositionA = 217;
+constexpr int kPositionB = 218;
+constexpr int kSizeA = 219;
+constexpr int kSizeB = 220;
+constexpr int kAlignment = 221;
+constexpr int kWidgetValue = 222;
+constexpr int kWidgetChoice = 223;
+constexpr int kWidgetCheck = 224;
 
 HWND AddControl(HWND parent, HINSTANCE instance, const wchar_t* type, const wchar_t* text,
     DWORD style, int id = 0, DWORD extendedStyle = 0) {
@@ -223,42 +240,55 @@ bool WidgetStudioWindow::CreateControls() {
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
     AddControl(hwnd_, instance_, L"STATIC", L"Monitor", 0);
     monitorChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
-        CBS_DROPDOWNLIST | WS_TABSTOP);
+        CBS_DROPDOWNLIST | WS_TABSTOP, kMonitorChoice);
     for (const MonitorDescriptor& monitor : monitors_) {
         const std::wstring label = monitor.id + (monitor.primary ? L" (Primary)" : L"");
         SendMessageW(monitorChoice_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
     }
     AddControl(hwnd_, instance_, L"STATIC", L"Layout", 0);
-    layoutMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
+    layoutMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kLayoutMode);
     SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Grid"));
     SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Free"));
-    locked_ = AddControl(hwnd_, instance_, L"BUTTON", L"Locked", BS_AUTOCHECKBOX | WS_TABSTOP);
+    locked_ = AddControl(hwnd_, instance_, L"BUTTON", L"Locked",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kLocked);
     AddControl(hwnd_, instance_, L"STATIC", L"Scale", 0);
-    contentScale_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    contentScale_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kContentScale, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Appearance", 0);
-    appearanceMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
+    appearanceMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kAppearanceMode);
     SendMessageW(appearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
     SendMessageW(appearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
-    glass_ = AddControl(hwnd_, instance_, L"BUTTON", L"Glass", BS_AUTOCHECKBOX | WS_TABSTOP);
+    glass_ = AddControl(hwnd_, instance_, L"BUTTON", L"Glass",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kGlass);
     AddControl(hwnd_, instance_, L"STATIC", L"Opacity", 0);
-    opacity_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    opacity_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kOpacity, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Blur", 0);
-    blur_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    blur_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kBlur, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Radius", 0);
-    radius_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    radius_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kRadius, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Column / X", 0);
-    positionA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    positionA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kPositionA, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Row / Y", 0);
-    positionB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    positionB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kPositionB, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Col span / Width", 0);
-    sizeA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    sizeA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kSizeA, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"STATIC", L"Row span / Height", 0);
-    sizeB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
+    sizeB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kSizeB, WS_EX_CLIENTEDGE);
     AddControl(hwnd_, instance_, L"BUTTON", L"Apply universal settings", BS_PUSHBUTTON | WS_TABSTOP, kApplyUniversal);
     AddControl(hwnd_, instance_, L"BUTTON", L"Add widget...", BS_PUSHBUTTON | WS_TABSTOP, kOpenLibrary);
     duplicate_ = AddControl(hwnd_, instance_, L"BUTTON", L"Duplicate", BS_PUSHBUTTON | WS_TABSTOP, kDuplicateWidget);
     AddControl(hwnd_, instance_, L"BUTTON", L"Remove", BS_PUSHBUTTON | WS_TABSTOP, kDeleteWidget);
-    alignment_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
+    alignment_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kAlignment);
     for (const wchar_t* item : {L"Align left", L"Horizontal center", L"Align right", L"Align top",
             L"Vertical center", L"Align bottom", L"Match width", L"Match height", L"Match both",
             L"Distribute horizontally", L"Distribute vertically"})
@@ -268,9 +298,12 @@ bool WidgetStudioWindow::CreateControls() {
     AddControl(hwnd_, instance_, L"STATIC", L"Widget setting", 0);
     widgetSetting_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kSettingCombo);
-    widgetValue_ = AddControl(hwnd_, instance_, L"EDIT", nullptr, ES_AUTOHSCROLL | WS_TABSTOP, 0, WS_EX_CLIENTEDGE);
-    widgetChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr, CBS_DROPDOWNLIST | WS_TABSTOP);
-    widgetCheck_ = AddControl(hwnd_, instance_, L"BUTTON", L"Enabled", BS_AUTOCHECKBOX | WS_TABSTOP);
+    widgetValue_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kWidgetValue, WS_EX_CLIENTEDGE);
+    widgetChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kWidgetChoice);
+    widgetCheck_ = AddControl(hwnd_, instance_, L"BUTTON", L"Enabled",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kWidgetCheck);
     ShowWindow(widgetChoice_, SW_HIDE);
     ShowWindow(widgetCheck_, SW_HIDE);
     browse_ = AddControl(hwnd_, instance_, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP, kBrowse);
@@ -421,18 +454,50 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     SetNumber(opacity_, widget->appearance.opacity);
     SetNumber(blur_, widget->appearance.blurRadius);
     SetNumber(radius_, widget->appearance.cornerRadius);
-    if (widget->layoutMode == LayoutMode::Grid) {
-        SetNumber(positionA_, widget->grid.column); SetNumber(positionB_, widget->grid.row);
-        SetNumber(sizeA_, widget->grid.columnSpan); SetNumber(sizeB_, widget->grid.rowSpan);
-    } else {
-        SetNumber(positionA_, widget->free.x); SetNumber(positionB_, widget->free.y);
-        SetNumber(sizeA_, widget->free.width); SetNumber(sizeB_, widget->free.height);
-    }
+    UpdateLayoutSettingValues();
     SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
     for (const auto& definition : widget->content->Settings())
         SendMessageW(widgetSetting_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(definition.displayName.c_str()));
     if (!widget->content->Settings().empty()) SendMessageW(widgetSetting_, CB_SETCURSEL, 0, 0);
     UpdateWidgetSettingValue();
+}
+
+void WidgetStudioWindow::UpdateLayoutSettingValues() {
+    WidgetInstance* widget = PrimaryWidget();
+    if (!widget || !grid_) return;
+    const LayoutMode requested = SendMessageW(layoutMode_, CB_GETCURSEL, 0, 0) == 1
+        ? LayoutMode::Free : LayoutMode::Grid;
+    if (requested == LayoutMode::Free) {
+        const RectF rect = OuterLayout::RectFor(*widget, *grid_, layoutMetrics_);
+        SetNumber(positionA_, rect.x);
+        SetNumber(positionB_, rect.y);
+        SetNumber(sizeA_, rect.width);
+        SetNumber(sizeB_, rect.height);
+        return;
+    }
+
+    GridPlacement placement = widget->grid;
+    if (widget->layoutMode == LayoutMode::Free) {
+        const WidgetDescriptor* descriptor = scene_->DescriptorFor(widget->instanceId);
+        const int minimumColumns = std::min(
+            grid_->Columns(), descriptor ? descriptor->minimumGridSize.columns : 1);
+        const int minimumRows = std::min(
+            grid_->Rows(), descriptor ? descriptor->minimumGridSize.rows : 1);
+        const int maximumColumns = std::max(minimumColumns,
+            std::min(grid_->Columns(), descriptor
+                ? descriptor->maximumGridSize.columns : grid_->Columns()));
+        const int maximumRows = std::max(minimumRows,
+            std::min(grid_->Rows(), descriptor
+                ? descriptor->maximumGridSize.rows : grid_->Rows()));
+        placement = OuterLayout::GridForRect(
+            RectF{widget->free.x, widget->free.y, widget->free.width, widget->free.height},
+            placement, *grid_, layoutMetrics_,
+            minimumColumns, minimumRows, maximumColumns, maximumRows);
+    }
+    SetNumber(positionA_, placement.column);
+    SetNumber(positionB_, placement.row);
+    SetNumber(sizeA_, placement.columnSpan);
+    SetNumber(sizeB_, placement.rowSpan);
 }
 
 void WidgetStudioWindow::UpdateWidgetSettingValue() {
@@ -701,6 +766,9 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         case kDeleteWidget:
             if (scene_->RemoveSelectedWidgets() > 0) NotifySceneChanged();
             return 0;
+        case kLayoutMode:
+            if (HIWORD(wParam) == CBN_SELCHANGE) { UpdateLayoutSettingValues(); return 0; }
+            break;
         case kSettingCombo:
             if (HIWORD(wParam) == CBN_SELCHANGE) { UpdateWidgetSettingValue(); return 0; }
             break;

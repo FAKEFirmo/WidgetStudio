@@ -49,6 +49,7 @@ private:
     void UpdatePreviewMetrics();
     void PaintPreview();
     void UpdateControlsFromSelection();
+    void UpdateLayoutSettingValues();
     void UpdateWidgetSettingValue();
     void ApplyUniversalSettings();
     void ApplyAlignment();

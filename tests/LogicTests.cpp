@@ -430,6 +430,16 @@ void TestPhotoLayoutAndAssetImport() {
 }
 
 void TestFreeLayoutAndAlignment() {
+    const ws::GridLayout grid;
+    const ws::GridMetrics gridMetrics = grid.Calculate({1200.0f, 700.0f});
+    const ws::GridPlacement originalGrid{4, 2, 3, 2};
+    const ws::RectF originalRect = grid.RectFor(originalGrid, gridMetrics);
+    const ws::GridPlacement roundTrip = ws::OuterLayout::GridForRect(
+        originalRect, {}, grid, gridMetrics, 1, 1, 6, 4);
+    Require(roundTrip.column == originalGrid.column && roundTrip.row == originalGrid.row &&
+        roundTrip.columnSpan == originalGrid.columnSpan && roundTrip.rowSpan == originalGrid.rowSpan,
+        "Grid-to-free editor geometry should convert back without changing grid placement");
+
     ws::FreePlacement reference{10.0f, 20.0f, 100.0f, 50.0f};
     ws::FreePlacement target{0.0f, 80.0f, 40.0f, 20.0f};
     std::array items{

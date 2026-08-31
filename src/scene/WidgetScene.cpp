@@ -199,14 +199,8 @@ bool WidgetScene::SetWidgetLayoutMode(
             std::min(gridColumns_, descriptor ? descriptor->maximumGridSize.columns : gridColumns_));
         const int maximumRows = std::max(minimumRows,
             std::min(gridRows_, descriptor ? descriptor->maximumGridSize.rows : gridRows_));
-        const float stride = std::max(1.0f, metrics.cellSize + metrics.gap);
-        widget->grid.columnSpan = std::clamp(
-            static_cast<int>(std::lround((current.width + metrics.gap) / stride)),
-            minimumColumns, maximumColumns);
-        widget->grid.rowSpan = std::clamp(
-            static_cast<int>(std::lround((current.height + metrics.gap) / stride)),
-            minimumRows, maximumRows);
-        widget->grid = grid.MoveToPoint(widget->grid, PointF{current.x, current.y}, PointF{}, metrics);
+        widget->grid = OuterLayout::GridForRect(current, widget->grid, grid, metrics,
+            minimumColumns, minimumRows, maximumColumns, maximumRows);
     }
     widget->layoutMode = mode;
     return true;
