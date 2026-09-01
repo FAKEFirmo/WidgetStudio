@@ -7,6 +7,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cwchar>
 #include <utility>
 
 namespace ws {
@@ -14,19 +15,6 @@ namespace {
 
 D2D1_COLOR_F Color(float r, float g, float b, float a = 1.0f) {
     return D2D1::ColorF(r, g, b, a);
-}
-
-D2D1_RECT_F WallpaperSourceRect(D2D1_SIZE_F targetSize, D2D1_SIZE_F bitmapSize) {
-    const float targetAspect = targetSize.width / std::max(1.0f, targetSize.height);
-    const float bitmapAspect = bitmapSize.width / std::max(1.0f, bitmapSize.height);
-    if (bitmapAspect > targetAspect) {
-        const float sourceWidth = bitmapSize.height * targetAspect;
-        const float left = (bitmapSize.width - sourceWidth) * 0.5f;
-        return D2D1::RectF(left, 0.0f, left + sourceWidth, bitmapSize.height);
-    }
-    const float sourceHeight = bitmapSize.width / targetAspect;
-    const float top = (bitmapSize.height - sourceHeight) * 0.5f;
-    return D2D1::RectF(0.0f, top, bitmapSize.width, top + sourceHeight);
 }
 
 bool SameRect(RectF left, RectF right) noexcept {
@@ -134,7 +122,8 @@ HRESULT Renderer::ReloadWallpaper() {
 }
 
 HRESULT Renderer::EnsureWallpaperBitmap() {
-    if (!wallpaperCache_ || !wallpaperCache_->Bitmap()) return S_FALSE;
+    if (!wallpaperCache_ || wallpaperMonitor_.monitorWidth <= 0 ||
+        wallpaperMonitor_.monitorHeight <= 0) return S_FALSE;
     if (wallpaperRevision_ != wallpaperCache_->Revision()) {
         wallpaperBitmap_.Reset();
         glassCache_.clear();
@@ -142,34 +131,29 @@ HRESULT Renderer::EnsureWallpaperBitmap() {
     }
     if (wallpaperBitmap_) return S_OK;
 
-    UINT sourceWidth{};
-    UINT sourceHeight{};
-    HRESULT result = wallpaperCache_->Bitmap()->GetSize(&sourceWidth, &sourceHeight);
-    if (FAILED(result) || sourceWidth == 0 || sourceHeight == 0) return FAILED(result) ? result : E_FAIL;
-    const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
-    const D2D1_SIZE_F desktopSize = wallpaperDesktopSize_.width > 0.0f && wallpaperDesktopSize_.height > 0.0f
-        ? D2D1::SizeF(wallpaperDesktopSize_.width, wallpaperDesktopSize_.height) : targetSize;
-    const D2D1_RECT_F fullSource = WallpaperSourceRect(
-        desktopSize, D2D1::SizeF(static_cast<float>(sourceWidth), static_cast<float>(sourceHeight)));
-    D2D1_RECT_F region = fullSource;
-    if (wallpaperWindowBounds_.width > 0.0f && wallpaperWindowBounds_.height > 0.0f) {
-        const float scaleX = (fullSource.right - fullSource.left) / std::max(1.0f, desktopSize.width);
-        const float scaleY = (fullSource.bottom - fullSource.top) / std::max(1.0f, desktopSize.height);
-        region = D2D1::RectF(
-            fullSource.left + wallpaperWindowBounds_.Left() * scaleX,
-            fullSource.top + wallpaperWindowBounds_.Top() * scaleY,
-            fullSource.left + wallpaperWindowBounds_.Right() * scaleX,
-            fullSource.top + wallpaperWindowBounds_.Bottom() * scaleY);
-    }
-    const int left = std::clamp(static_cast<int>(std::floor(region.left)), 0, static_cast<int>(sourceWidth) - 1);
-    const int top = std::clamp(static_cast<int>(std::floor(region.top)), 0, static_cast<int>(sourceHeight) - 1);
-    const int right = std::clamp(static_cast<int>(std::ceil(region.right)), left + 1, static_cast<int>(sourceWidth));
-    const int bottom = std::clamp(static_cast<int>(std::ceil(region.bottom)), top + 1, static_cast<int>(sourceHeight));
+    Microsoft::WRL::ComPtr<IWICBitmapSource> monitorBitmap;
+    HRESULT result = wallpaperCache_->MonitorBitmap(
+        wallpaperMonitorId_, wallpaperMonitor_, monitorBitmap.GetAddressOf());
+    if (result != S_OK) return result;
+    const int left = std::clamp(static_cast<int>(std::floor(wallpaperWindowPixels_.Left())) -
+            wallpaperSamplingPaddingPixels_,
+        0, wallpaperMonitor_.monitorWidth - 1);
+    const int top = std::clamp(static_cast<int>(std::floor(wallpaperWindowPixels_.Top())) -
+            wallpaperSamplingPaddingPixels_,
+        0, wallpaperMonitor_.monitorHeight - 1);
+    const int right = std::clamp(static_cast<int>(std::ceil(wallpaperWindowPixels_.Right())) +
+            wallpaperSamplingPaddingPixels_,
+        left + 1, wallpaperMonitor_.monitorWidth);
+    const int bottom = std::clamp(static_cast<int>(std::ceil(wallpaperWindowPixels_.Bottom())) +
+            wallpaperSamplingPaddingPixels_,
+        top + 1, wallpaperMonitor_.monitorHeight);
     const WICRect crop{left, top, right - left, bottom - top};
+    wallpaperBitmapPixels_ = {static_cast<float>(left), static_cast<float>(top),
+        static_cast<float>(right - left), static_cast<float>(bottom - top)};
     Microsoft::WRL::ComPtr<IWICBitmapClipper> clipper;
     result = resources_->WicFactory()->CreateBitmapClipper(clipper.GetAddressOf());
     if (FAILED(result)) return result;
-    result = clipper->Initialize(wallpaperCache_->Bitmap(), &crop);
+    result = clipper->Initialize(monitorBitmap.Get(), &crop);
     if (FAILED(result)) return result;
     return renderTarget_->CreateBitmapFromWicBitmap(clipper.Get(), nullptr, wallpaperBitmap_.GetAddressOf());
 }
@@ -179,7 +163,6 @@ D2D1_RECT_F Renderer::ToD2D(RectF rect) const noexcept {
 }
 
 void Renderer::DrawWallpaper(RectF destinationRect) {
-    const D2D1_RECT_F destination = ToD2D(destinationRect);
     if (EnsureWallpaperBitmap() != S_OK || !wallpaperBitmap_) return;
 
     const D2D1_SIZE_F bitmapSize = wallpaperBitmap_->GetSize();
@@ -188,6 +171,25 @@ void Renderer::DrawWallpaper(RectF destinationRect) {
     }
 
     const D2D1_RECT_F source = D2D1::RectF(0.0f, 0.0f, bitmapSize.width, bitmapSize.height);
+    const float scaleX = destinationRect.width / std::max(1.0f, wallpaperWindowPixels_.width);
+    const float scaleY = destinationRect.height / std::max(1.0f, wallpaperWindowPixels_.height);
+    const RectF logicalDestination{
+        destinationRect.x + (wallpaperBitmapPixels_.x - wallpaperWindowPixels_.x) * scaleX,
+        destinationRect.y + (wallpaperBitmapPixels_.y - wallpaperWindowPixels_.y) * scaleY,
+        wallpaperBitmapPixels_.width * scaleX,
+        wallpaperBitmapPixels_.height * scaleY,
+    };
+    const D2D1_RECT_F destination = ToD2D(logicalDestination);
+    D2D1_MATRIX_3X2_F transform{};
+    renderTarget_->GetTransform(&transform);
+    const auto transformed = [&transform](float x, float y) {
+        return D2D1::Point2F(x * transform._11 + y * transform._21 + transform._31,
+            x * transform._12 + y * transform._22 + transform._32);
+    };
+    const D2D1_POINT_2F topLeft = transformed(logicalDestination.Left(), logicalDestination.Top());
+    const D2D1_POINT_2F bottomRight = transformed(logicalDestination.Right(), logicalDestination.Bottom());
+    wallpaperDestination_ = {topLeft.x, topLeft.y,
+        bottomRight.x - topLeft.x, bottomRight.y - topLeft.y};
 
     renderTarget_->DrawBitmap(
         wallpaperBitmap_.Get(),
@@ -223,20 +225,39 @@ void Renderer::DrawGlass(const WidgetInstance& widget, RectF rect) {
             (targetRect.Top() - wallpaperDestination_.Top()) * sourceScaleY,
             (targetRect.Right() - wallpaperDestination_.Left()) * sourceScaleX,
             (targetRect.Bottom() - wallpaperDestination_.Top()) * sourceScaleY);
-        const float downsample = std::clamp(1.0f + widget.appearance.blurRadius / 3.0f, 2.0f, 12.0f);
-        const D2D1_SIZE_F smallSize = D2D1::SizeF(
-            std::max(1.0f, targetRect.width / downsample),
-            std::max(1.0f, targetRect.height / downsample));
-        Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> smallTarget;
-        if (FAILED(renderTarget_->CreateCompatibleRenderTarget(&smallSize, nullptr, nullptr,
-                D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, smallTarget.GetAddressOf()))) return;
-        smallTarget->BeginDraw();
-        const D2D1_RECT_F destination = D2D1::RectF(0.0f, 0.0f, smallSize.width, smallSize.height);
-        smallTarget->DrawBitmap(wallpaperBitmap_.Get(), &destination, 1.0f,
+        // Keep the intermediate at the final card size. The former implementation
+        // made a tiny thumbnail and enlarged it, which changed apparent resolution.
+        // Multiple symmetric, monitor-space samples soften detail without changing
+        // the central wallpaper transform or scaling a blurred texture.
+        const D2D1_SIZE_F blurSize = D2D1::SizeF(targetRect.width, targetRect.height);
+        Microsoft::WRL::ComPtr<ID2D1BitmapRenderTarget> blurTarget;
+        if (FAILED(renderTarget_->CreateCompatibleRenderTarget(&blurSize, nullptr, nullptr,
+                D2D1_COMPATIBLE_RENDER_TARGET_OPTIONS_NONE, blurTarget.GetAddressOf()))) return;
+        blurTarget->BeginDraw();
+        blurTarget->Clear(Color(0.0f, 0.0f, 0.0f, 0.0f));
+        const D2D1_RECT_F destination = D2D1::RectF(0.0f, 0.0f, blurSize.width, blurSize.height);
+        blurTarget->DrawBitmap(wallpaperBitmap_.Get(), &destination, 1.0f,
             D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &source);
-        if (FAILED(smallTarget->EndDraw())) return;
+        const float sampleOffsetX = std::max(0.75f,
+            widget.appearance.blurRadius * sourceScaleX * 0.18f);
+        const float sampleOffsetY = std::max(0.75f,
+            widget.appearance.blurRadius * sourceScaleY * 0.18f);
+        for (const D2D1_POINT_2F direction : {
+                D2D1::Point2F(-1.0f, 0.0f), D2D1::Point2F(1.0f, 0.0f),
+                D2D1::Point2F(0.0f, -1.0f), D2D1::Point2F(0.0f, 1.0f),
+                D2D1::Point2F(-0.7f, -0.7f), D2D1::Point2F(0.7f, -0.7f),
+                D2D1::Point2F(-0.7f, 0.7f), D2D1::Point2F(0.7f, 0.7f)}) {
+            D2D1_RECT_F shifted = source;
+            shifted.left += direction.x * sampleOffsetX;
+            shifted.right += direction.x * sampleOffsetX;
+            shifted.top += direction.y * sampleOffsetY;
+            shifted.bottom += direction.y * sampleOffsetY;
+            blurTarget->DrawBitmap(wallpaperBitmap_.Get(), &destination, 0.12f,
+                D2D1_BITMAP_INTERPOLATION_MODE_LINEAR, &shifted);
+        }
+        if (FAILED(blurTarget->EndDraw())) return;
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
-        if (FAILED(smallTarget->GetBitmap(bitmap.GetAddressOf()))) return;
+        if (FAILED(blurTarget->GetBitmap(bitmap.GetAddressOf()))) return;
         cache = GlassCacheEntry{targetRect, widget.appearance.blurRadius, wallpaperRevision_, std::move(bitmap)};
     }
 
@@ -303,6 +324,15 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
         widget.appearance.cornerRadius);
 
     if (widget.appearance.shadowEnabled) renderTarget_->FillRoundedRectangle(&shadow, shadowBrush.Get());
+    Microsoft::WRL::ComPtr<ID2D1RoundedRectangleGeometry> cardClip;
+    Microsoft::WRL::ComPtr<ID2D1Layer> cardLayer;
+    const bool roundedClip = SUCCEEDED(resources_->D2DFactory()->CreateRoundedRectangleGeometry(
+            &rounded, cardClip.GetAddressOf())) &&
+        SUCCEEDED(renderTarget_->CreateLayer(nullptr, cardLayer.GetAddressOf()));
+    if (roundedClip) {
+        renderTarget_->PushLayer(
+            D2D1::LayerParameters(D2D1::InfiniteRect(), cardClip.Get()), cardLayer.Get());
+    }
     DrawGlass(widget, rect);
     if (widget.appearance.surface != SurfaceMode::Transparent) {
         renderTarget_->FillRoundedRectangle(&rounded, surfaceBrush.Get());
@@ -330,6 +360,7 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
         });
         renderTarget_->PopAxisAlignedClip();
     }
+    if (roundedClip) renderTarget_->PopLayer();
 
     if (editMode && widget.selected) {
         DrawSelection(widget, rect);
@@ -378,8 +409,8 @@ HRESULT Renderer::Render(
     float sceneScale,
     PointF sceneOffset,
     SizeF sceneSize,
-    RectF wallpaperWindowBounds,
-    SizeF wallpaperDesktopSize,
+    RectF wallpaperWindowPixels,
+    WallpaperMonitorGeometry wallpaperMonitor,
     std::wstring_view monitorId) {
 
     HRESULT hr = CreateDeviceResources();
@@ -390,22 +421,22 @@ HRESULT Renderer::Render(
         sceneSize = {targetSize.width, targetSize.height};
     }
     const RectF fullScene{0.0f, 0.0f, sceneSize.width, sceneSize.height};
-    if (wallpaperWindowBounds.width <= 0.0f || wallpaperWindowBounds.height <= 0.0f) {
-        wallpaperWindowBounds = fullScene;
+    if (wallpaperWindowPixels.width <= 0.0f || wallpaperWindowPixels.height <= 0.0f) {
+        wallpaperWindowPixels = {0.0f, 0.0f,
+            static_cast<float>(wallpaperMonitor.monitorWidth),
+            static_cast<float>(wallpaperMonitor.monitorHeight)};
     }
-    if (wallpaperDesktopSize.width <= 0.0f || wallpaperDesktopSize.height <= 0.0f) {
-        wallpaperDesktopSize = sceneSize;
-    }
-    if (!SameRect(wallpaperWindowBounds_, wallpaperWindowBounds) ||
-        wallpaperDesktopSize_.width != wallpaperDesktopSize.width ||
-        wallpaperDesktopSize_.height != wallpaperDesktopSize.height) {
+    if (!SameRect(wallpaperWindowPixels_, wallpaperWindowPixels) ||
+        wallpaperMonitorId_ != monitorId ||
+        wallpaperMonitor_.monitorWidth != wallpaperMonitor.monitorWidth ||
+        wallpaperMonitor_.monitorHeight != wallpaperMonitor.monitorHeight) {
         wallpaperBitmap_.Reset();
         glassCache_.clear();
     }
-    wallpaperWindowBounds_ = wallpaperWindowBounds;
-    wallpaperDesktopSize_ = wallpaperDesktopSize;
-    wallpaperDestination_ = {
-        sceneOffset.x, sceneOffset.y, sceneSize.width * sceneScale, sceneSize.height * sceneScale};
+    wallpaperWindowPixels_ = wallpaperWindowPixels;
+    wallpaperMonitor_ = wallpaperMonitor;
+    wallpaperMonitorId_ = monitorId;
+    wallpaperSamplingPaddingPixels_ = 0;
 
     std::erase_if(glassCache_, [&scene](const auto& entry) {
         return std::none_of(scene.Widgets().begin(), scene.Widgets().end(),
@@ -426,6 +457,44 @@ HRESULT Renderer::Render(
         if (!monitorId.empty() && widget.monitorId != monitorId) continue;
         DrawWidget(widget, OuterLayout::RectFor(widget, layout, metrics), editMode);
     }
+#ifdef _DEBUG
+    if (editMode) {
+        const auto selected = std::find_if(scene.Widgets().begin(), scene.Widgets().end(),
+            [&monitorId](const WidgetInstance& widget) {
+                return widget.primarySelection && (monitorId.empty() || widget.monitorId == monitorId);
+            });
+        if (selected != scene.Widgets().end()) {
+            const RectF widgetRect = OuterLayout::RectFor(*selected, layout, metrics);
+            const float pixelsPerDip = static_cast<float>(wallpaperMonitor.monitorWidth) /
+                std::max(1.0f, sceneSize.width);
+            const RectF sourcePixels{widgetRect.x * pixelsPerDip, widgetRect.y * pixelsPerDip,
+                widgetRect.width * pixelsPerDip, widgetRect.height * pixelsPerDip};
+            std::array<wchar_t, 320> diagnostic{};
+            swprintf_s(diagnostic.data(), diagnostic.size(),
+                L"Monitor: %d x %d\nDPI: %.0f / %.0f%%\nGrid: %d x %d\n"
+                L"Widget: %.1f, %.1f, %.1f, %.1f DIP\nWallpaper source: %.1f, %.1f, %.1f, %.1f px",
+                wallpaperMonitor.monitorWidth, wallpaperMonitor.monitorHeight,
+                pixelsPerDip * 96.0f, pixelsPerDip * 100.0f,
+                layout.Columns(), layout.Rows(), widgetRect.x, widgetRect.y,
+                widgetRect.width, widgetRect.height, sourcePixels.x, sourcePixels.y,
+                sourcePixels.width, sourcePixels.height);
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> background;
+            Microsoft::WRL::ComPtr<ID2D1SolidColorBrush> foreground;
+            if (SUCCEEDED(renderTarget_->CreateSolidColorBrush(
+                    Color(0.0f, 0.0f, 0.0f, 0.76f), background.GetAddressOf())) &&
+                SUCCEEDED(renderTarget_->CreateSolidColorBrush(
+                    Color(1.0f, 1.0f, 1.0f), foreground.GetAddressOf()))) {
+                const D2D1_RECT_F panel = D2D1::RectF(24.0f, 24.0f, 390.0f, 130.0f);
+                renderTarget_->FillRoundedRectangle(
+                    D2D1::RoundedRect(panel, 8.0f, 8.0f), background.Get());
+                const D2D1_RECT_F textBounds = D2D1::RectF(36.0f, 32.0f, 380.0f, 126.0f);
+                renderTarget_->DrawTextW(diagnostic.data(),
+                    static_cast<UINT32>(wcslen(diagnostic.data())), resources_->SmallFormat(),
+                    &textBounds, foreground.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
+    }
+#endif
     renderTarget_->SetTransform(D2D1::Matrix3x2F::Identity());
 
     hr = renderTarget_->EndDraw();
@@ -441,19 +510,26 @@ HRESULT Renderer::Render(
 }
 
 HRESULT Renderer::RenderWidget(const WidgetInstance& widget, bool editMode,
-    RectF windowBoundsOnMonitor, SizeF monitorSize, RectF widgetBoundsInWindow) {
-    if (!SameRect(wallpaperWindowBounds_, windowBoundsOnMonitor) ||
-        wallpaperDesktopSize_.width != monitorSize.width || wallpaperDesktopSize_.height != monitorSize.height) {
+    RectF windowBoundsOnMonitorPixels, WallpaperMonitorGeometry wallpaperMonitor,
+    std::wstring_view monitorId, RectF widgetBoundsInWindow) {
+    const int requestedPadding = widget.appearance.surface == SurfaceMode::Frosted
+        ? static_cast<int>(std::ceil(widget.appearance.blurRadius * dpi_ / 96.0f)) + 2 : 0;
+    if (!SameRect(wallpaperWindowPixels_, windowBoundsOnMonitorPixels) ||
+        wallpaperMonitorId_ != monitorId ||
+        wallpaperMonitor_.monitorWidth != wallpaperMonitor.monitorWidth ||
+        wallpaperMonitor_.monitorHeight != wallpaperMonitor.monitorHeight ||
+        wallpaperSamplingPaddingPixels_ != requestedPadding) {
         wallpaperBitmap_.Reset();
         glassCache_.clear();
     }
-    wallpaperWindowBounds_ = windowBoundsOnMonitor;
-    wallpaperDesktopSize_ = monitorSize;
+    wallpaperWindowPixels_ = windowBoundsOnMonitorPixels;
+    wallpaperMonitor_ = wallpaperMonitor;
+    wallpaperMonitorId_ = monitorId;
+    wallpaperSamplingPaddingPixels_ = requestedPadding;
     HRESULT hr = CreateDeviceResources();
     if (FAILED(hr)) return hr;
     const D2D1_SIZE_F targetSize = renderTarget_->GetSize();
     const RectF targetBounds{0.0f, 0.0f, targetSize.width, targetSize.height};
-    wallpaperDestination_ = targetBounds;
 
     std::erase_if(glassCache_, [&widget](const auto& entry) {
         return entry.first != widget.instanceId;

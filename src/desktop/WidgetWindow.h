@@ -60,7 +60,7 @@ private:
     RectF windowBounds_{};
     RectF widgetBoundsInWindow_{};
     RectF wallpaperBounds_{};
-    SizeF wallpaperDesktopSize_{};
+    WallpaperMonitorGeometry wallpaperMonitor_{};
     SizeF monitorSize_{};
     Renderer renderer_{};
     DesktopBackendController backend_{};

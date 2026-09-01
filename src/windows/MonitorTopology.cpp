@@ -20,11 +20,27 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM context) {
     UINT dpiY = 96;
     if (FAILED(GetDpiForMonitor(monitor, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) dpiX = 96;
     const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, dpiX));
+    const int monitorWidth = info.rcMonitor.right - info.rcMonitor.left;
+    const int monitorHeight = info.rcMonitor.bottom - info.rcMonitor.top;
+    const int virtualX = GetSystemMetrics(SM_XVIRTUALSCREEN);
+    const int virtualY = GetSystemMetrics(SM_YVIRTUALSCREEN);
     monitors.push_back(MonitorDescriptor{
         .id = info.szDevice,
+        .monitorBoundsDips = RectF{
+            0.0f,
+            0.0f,
+            static_cast<float>(monitorWidth) * pixelsToDips,
+            static_cast<float>(monitorHeight) * pixelsToDips,
+        },
         .workAreaDips = RectF{
             0.0f,
             0.0f,
+            static_cast<float>(info.rcWork.right - info.rcWork.left) * pixelsToDips,
+            static_cast<float>(info.rcWork.bottom - info.rcWork.top) * pixelsToDips,
+        },
+        .workAreaOnMonitorDips = RectF{
+            static_cast<float>(info.rcWork.left - info.rcMonitor.left) * pixelsToDips,
+            static_cast<float>(info.rcWork.top - info.rcMonitor.top) * pixelsToDips,
             static_cast<float>(info.rcWork.right - info.rcWork.left) * pixelsToDips,
             static_cast<float>(info.rcWork.bottom - info.rcWork.top) * pixelsToDips,
         },
@@ -34,8 +50,12 @@ BOOL CALLBACK CollectMonitor(HMONITOR monitor, HDC, LPRECT, LPARAM context) {
         .pixelHeight = info.rcWork.bottom - info.rcWork.top,
         .monitorPixelX = info.rcMonitor.left,
         .monitorPixelY = info.rcMonitor.top,
-        .monitorPixelWidth = info.rcMonitor.right - info.rcMonitor.left,
-        .monitorPixelHeight = info.rcMonitor.bottom - info.rcMonitor.top,
+        .monitorPixelWidth = monitorWidth,
+        .monitorPixelHeight = monitorHeight,
+        .virtualPixelX = virtualX,
+        .virtualPixelY = virtualY,
+        .virtualPixelWidth = GetSystemMetrics(SM_CXVIRTUALSCREEN),
+        .virtualPixelHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN),
         .dpi = dpiX,
         .primary = (info.dwFlags & MONITORINFOF_PRIMARY) != 0,
     });
@@ -87,13 +107,13 @@ std::size_t MonitorTopology::ReconcileWidgets(
         widget.grid.row = std::clamp(widget.grid.row, 0,
             std::max(0, gridRows - widget.grid.rowSpan));
         widget.free.width = std::clamp(widget.free.width, 1.0f,
-            std::max(1.0f, destination->workAreaDips.width));
+            std::max(1.0f, destination->monitorBoundsDips.width));
         widget.free.height = std::clamp(widget.free.height, 1.0f,
-            std::max(1.0f, destination->workAreaDips.height));
+            std::max(1.0f, destination->monitorBoundsDips.height));
         widget.free.x = std::clamp(widget.free.x, 0.0f,
-            destination->workAreaDips.width - widget.free.width);
+            destination->monitorBoundsDips.width - widget.free.width);
         widget.free.y = std::clamp(widget.free.y, 0.0f,
-            destination->workAreaDips.height - widget.free.height);
+            destination->monitorBoundsDips.height - widget.free.height);
         widgetChanged = widgetChanged ||
             widget.grid.column != oldGrid.column || widget.grid.row != oldGrid.row ||
             widget.grid.columnSpan != oldGrid.columnSpan || widget.grid.rowSpan != oldGrid.rowSpan ||

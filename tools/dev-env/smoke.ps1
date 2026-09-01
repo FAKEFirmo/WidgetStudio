@@ -44,6 +44,8 @@ public static class WidgetStudioSmokeNative {
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr window);
+    [DllImport("user32.dll")]
+    public static extern int GetSystemMetrics(int index);
     public static string ClassNameOf(IntPtr window) {
         if (window == IntPtr.Zero) return "";
         var name = new StringBuilder(256);
@@ -207,6 +209,13 @@ try {
         $settingsRect.Top -lt $previewRect.Bottom) {
         throw 'Widget Studio settings are not laid out below the desktop preview.'
     }
+    $previewAspect = [double]($previewRect.Right - $previewRect.Left) /
+        [Math]::Max(1, $previewRect.Bottom - $previewRect.Top)
+    $monitorAspect = [double][WidgetStudioSmokeNative]::GetSystemMetrics(0) /
+        [Math]::Max(1, [WidgetStudioSmokeNative]::GetSystemMetrics(1))
+    if ([Math]::Abs($previewAspect - $monitorAspect) -gt 0.04) {
+        throw "Widget Studio preview aspect $previewAspect does not match full monitor aspect $monitorAspect."
+    }
 
     $configuredId = @($scene.widgets)[-1].instanceId
     $layoutMode = [WidgetStudioSmokeNative]::GetDlgItem($studio, 209)
@@ -360,6 +369,7 @@ try {
         multipleInstancePassed = $true
         passiveHitTestingPassed = $true
         studioPreviewAboveSettings = $true
+        studioPreviewUsesFullMonitorAspect = $true
         universalSettingsPassed = $true
         widgetSpecificSettingsPassed = $true
         duplicateStatePassed = $true

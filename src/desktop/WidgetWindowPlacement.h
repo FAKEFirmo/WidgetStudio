@@ -2,6 +2,7 @@
 
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
+#include "rendering/WallpaperPlacement.h"
 
 namespace ws {
 
@@ -34,6 +35,10 @@ public:
         const MonitorDescriptor& monitor) noexcept;
     [[nodiscard]] static WallpaperSamplingGeometry WallpaperSampling(
         const MonitorDescriptor& monitor) noexcept;
+    [[nodiscard]] static WallpaperMonitorGeometry WallpaperMonitor(
+        const MonitorDescriptor& monitor) noexcept;
+    [[nodiscard]] static int DipsToPhysicalPixels(float dips, unsigned int dpi) noexcept;
+    [[nodiscard]] static float PhysicalPixelsToDips(int pixels, unsigned int dpi) noexcept;
 };
 
 } // namespace ws

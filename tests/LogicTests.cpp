@@ -5,6 +5,7 @@
 #include "layout/AuthoredContentLayout.h"
 #include "layout/Alignment.h"
 #include "layout/OuterLayout.h"
+#include "rendering/WallpaperPlacement.h"
 #include "scene/WidgetScene.h"
 #include "widgets/ClockWidget.h"
 #include "widgets/WidgetRegistry.h"
@@ -30,6 +31,10 @@ namespace {
 
 void Require(bool condition, const char* message) {
     if (!condition) throw std::runtime_error(message);
+}
+
+bool Near(float left, float right, float tolerance = 0.01f) {
+    return std::abs(left - right) <= tolerance;
 }
 
 class TestWidget final : public ws::IWidget {
@@ -128,6 +133,18 @@ void TestGridGeometryAndFullPlacement() {
     Require(spanned.Right() == adjacent.Right(),
         "spanned widget edges should resolve from the same grid metrics without drift");
 
+    const ws::GridMetrics fullHd = grid.Calculate({1920.0f, 1080.0f});
+    Require(fullHd.columns == 12 && fullHd.rows == 7 && Near(fullHd.originY, 18.0f) &&
+        Near(fullHd.contentHeight, 1044.0f) && Near(fullHd.originX, 61.5714f),
+        "the 1920x1080 grid should use the complete monitor and center deterministic side remainder");
+    Require(Near(fullHd.cellSize, 140.5714f) && Near(fullHd.contentWidth, 1796.8572f),
+        "the full-HD grid should retain square cells instead of stretching to rectangles");
+    const ws::RectF fullHdWidget = grid.RectFor({2, 1, 4, 2}, fullHd);
+    Require(Near(fullHdWidget.x, 362.7143f) && Near(fullHdWidget.y, 168.5714f) &&
+        Near(fullHdWidget.width, 592.2857f) && Near(fullHdWidget.height, 291.1429f) &&
+        fullHdWidget.Right() <= 1920.0f && fullHdWidget.Bottom() <= 1080.0f,
+        "grid column, row, and spans should resolve inside the complete 1920x1080 monitor");
+
     ws::WidgetRegistry registry = CreateRegistry();
     ws::WidgetScene scene(registry);
     std::set<std::pair<int, int>> placements;
@@ -198,7 +215,9 @@ void TestMonitorMigration() {
     missing->free = {-20.0f, 900.0f, 2000.0f, 900.0f};
     const ws::MonitorTopology topology(std::vector<ws::MonitorDescriptor>{ws::MonitorDescriptor{
         .id = L"DISPLAY-PRIMARY",
+        .monitorBoundsDips = {0.0f, 0.0f, 800.0f, 600.0f},
         .workAreaDips = {0.0f, 0.0f, 800.0f, 600.0f},
+        .workAreaOnMonitorDips = {0.0f, 0.0f, 800.0f, 560.0f},
         .pixelWidth = 1200,
         .pixelHeight = 900,
         .dpi = 144,
@@ -213,15 +232,15 @@ void TestMonitorMigration() {
         "migrated grid geometry should clamp to the destination grid");
     Require(missing->free.x == 0.0f && missing->free.y == 0.0f &&
         missing->free.width == 800.0f && missing->free.height == 600.0f,
-        "migrated free geometry should clamp to the destination work area");
+        "migrated free geometry should clamp to the destination full monitor");
 
     present->layoutMode = ws::LayoutMode::Free;
     present->free = {700.0f, 500.0f, 400.0f, 300.0f};
     Require(topology.ReconcileWidgets(scene, 12, 7) == 1,
-        "a work-area change should reconcile an existing monitor association");
+        "a monitor-bound change should reconcile an existing monitor association");
     Require(present->free.x == 400.0f && present->free.y == 300.0f &&
         present->free.width == 400.0f && present->free.height == 300.0f,
-        "free geometry should remain wholly inside the current monitor work area");
+        "free geometry should remain wholly inside the current full monitor");
 }
 
 void TestSelectionAndLocking() {
@@ -267,7 +286,9 @@ void TestWidgetWindowPlacement() {
     widget->free = {10.0f, 20.0f, 100.0f, 80.0f};
     const ws::MonitorDescriptor monitor{
         .id = L"DISPLAY-SCALED",
+        .monitorBoundsDips = {0.0f, 0.0f, 1280.0f, 720.0f},
         .workAreaDips = {0.0f, 0.0f, 1280.0f, 720.0f},
+        .workAreaOnMonitorDips = {0.0f, 80.0f, 1280.0f, 640.0f},
         .pixelX = -1920,
         .pixelY = 120,
         .pixelWidth = 1920,
@@ -276,6 +297,10 @@ void TestWidgetWindowPlacement() {
         .monitorPixelY = 0,
         .monitorPixelWidth = 1920,
         .monitorPixelHeight = 1080,
+        .virtualPixelX = -1920,
+        .virtualPixelY = 0,
+        .virtualPixelWidth = 3840,
+        .virtualPixelHeight = 1080,
         .dpi = 144,
     };
     const ws::GridLayout grid;
@@ -284,8 +309,8 @@ void TestWidgetWindowPlacement() {
         ws::WidgetWindowPlacementCalculator::Calculate(*widget, grid, metrics, monitor);
     Require(placement.widgetDips.x == 10.0f && placement.widgetInWindowDips.x == 5.0f,
         "window placement should preserve widget geometry and reserve rendering margin");
-    Require(placement.screenX == -1912 && placement.screenY == 143,
-        "DIP origins should convert to physical pixels relative to the monitor");
+    Require(placement.screenX == -1912 && placement.screenY == 23,
+        "DIP origins should convert to physical pixels relative to full monitor bounds");
     Require(placement.pixelWidth == 165 && placement.pixelHeight == 135,
         "DIP window dimensions should convert using the monitor DPI");
 
@@ -294,11 +319,61 @@ void TestWidgetWindowPlacement() {
     Require(wallpaper.workAreaOnMonitorDips.x == 0.0f &&
         wallpaper.workAreaOnMonitorDips.y == 80.0f &&
         wallpaper.workAreaOnMonitorDips.width == 1280.0f &&
-        wallpaper.workAreaOnMonitorDips.height == 720.0f,
+        wallpaper.workAreaOnMonitorDips.height == 640.0f,
         "wallpaper sampling should express the work area relative to the full monitor");
     Require(wallpaper.fullMonitorDips.width == 1280.0f &&
         wallpaper.fullMonitorDips.height == 720.0f,
         "wallpaper sampling should convert the full monitor to DIPs");
+    Require(ws::WidgetWindowPlacementCalculator::DipsToPhysicalPixels(100.0f, 144) == 150 &&
+        Near(ws::WidgetWindowPlacementCalculator::PhysicalPixelsToDips(150, 144), 100.0f),
+        "DIP and physical-pixel conversion should be inverse at 150 percent DPI");
+}
+
+void TestWallpaperPlacement() {
+    const ws::WallpaperMonitorGeometry fullHd{
+        .monitorX = 0, .monitorY = 0, .monitorWidth = 1920, .monitorHeight = 1080,
+        .virtualX = 0, .virtualY = 0, .virtualWidth = 1920, .virtualHeight = 1080,
+    };
+    const ws::WallpaperTransform identity = ws::WallpaperPlacement::Calculate(
+        {1920.0f, 1080.0f}, fullHd, ws::WallpaperPosition::Fill);
+    const ws::RectF exact = ws::WallpaperPlacement::SourceRect(
+        {400.0f, 200.0f, 500.0f, 300.0f}, identity);
+    Require(Near(exact.x, 400.0f) && Near(exact.y, 200.0f) &&
+        Near(exact.width, 500.0f) && Near(exact.height, 300.0f),
+        "a native-size full-HD wallpaper should map monitor and source pixels one-to-one");
+
+    const ws::WallpaperTransform fill = ws::WallpaperPlacement::Calculate(
+        {3840.0f, 2160.0f}, fullHd, ws::WallpaperPosition::Fill);
+    const ws::RectF highResolution = ws::WallpaperPlacement::SourceRect(
+        {400.0f, 200.0f, 500.0f, 300.0f}, fill);
+    Require(Near(fill.scaleX, 0.5f) && Near(fill.scaleY, 0.5f) &&
+        Near(highResolution.x, 800.0f) && Near(highResolution.y, 400.0f) &&
+        Near(highResolution.width, 1000.0f) && Near(highResolution.height, 600.0f),
+        "Fill should retain the deterministic original-bitmap to monitor pixel ratio");
+
+    const ws::WallpaperTransform stretch = ws::WallpaperPlacement::Calculate(
+        {1600.0f, 1200.0f}, fullHd, ws::WallpaperPosition::Stretch);
+    const ws::WallpaperTransform fit = ws::WallpaperPlacement::Calculate(
+        {1600.0f, 1200.0f}, fullHd, ws::WallpaperPosition::Fit);
+    const ws::WallpaperTransform center = ws::WallpaperPlacement::Calculate(
+        {1600.0f, 1200.0f}, fullHd, ws::WallpaperPosition::Center);
+    const ws::WallpaperTransform tile = ws::WallpaperPlacement::Calculate(
+        {800.0f, 600.0f}, fullHd, ws::WallpaperPosition::Tile);
+    Require(Near(stretch.scaleX, 1.2f) && Near(stretch.scaleY, 0.9f) &&
+        Near(fit.scaleX, 0.9f) && Near(fit.destinationX, 240.0f) &&
+        Near(center.destinationX, 160.0f) && Near(center.destinationY, -60.0f) && tile.tiled,
+        "Stretch, Fit, Center, and Tile placement math should match their Windows semantics");
+
+    const ws::WallpaperMonitorGeometry rightMonitor{
+        .monitorX = 1920, .monitorY = 0, .monitorWidth = 1920, .monitorHeight = 1080,
+        .virtualX = 0, .virtualY = 0, .virtualWidth = 3840, .virtualHeight = 1080,
+    };
+    const ws::WallpaperTransform span = ws::WallpaperPlacement::Calculate(
+        {3840.0f, 1080.0f}, rightMonitor, ws::WallpaperPosition::Span);
+    const ws::RectF spanSource = ws::WallpaperPlacement::SourceRect(
+        {0.0f, 0.0f, 1920.0f, 1080.0f}, span);
+    Require(Near(spanSource.x, 1920.0f) && Near(spanSource.width, 1920.0f),
+        "Span should map a monitor-local rectangle through the shared virtual desktop");
 }
 
 ws::WidgetPersistenceRecord ExampleRecord() {
@@ -592,6 +667,7 @@ int main() {
         TestMonitorMigration();
         TestSelectionAndLocking();
         TestWidgetWindowPlacement();
+        TestWallpaperPlacement();
         TestSerialization();
         TestAuthoredLayout();
         TestAtomicStoreAndRestore();

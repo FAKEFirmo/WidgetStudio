@@ -34,6 +34,7 @@ add_executable(WidgetStudio WIN32
     src/rendering/Renderer.cpp
     src/rendering/RenderingResources.cpp
     src/rendering/WallpaperCache.cpp
+    src/rendering/WallpaperPlacement.cpp
     src/scene/WidgetScene.cpp
     src/widgets/BuiltInWidgets.cpp
     src/widgets/CalendarWidget.cpp
@@ -99,6 +100,7 @@ if(BUILD_TESTING)
         src/persistence/AssetLibrary.cpp
         src/persistence/SceneJsonCodec.cpp
         src/persistence/SceneStore.cpp
+        src/rendering/WallpaperPlacement.cpp
         src/scene/WidgetScene.cpp
         src/widgets/ClockWidget.cpp
         src/widgets/WidgetRegistry.cpp

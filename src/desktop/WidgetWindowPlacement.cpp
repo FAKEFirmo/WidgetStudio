@@ -27,8 +27,8 @@ WidgetWindowPlacement WidgetWindowPlacementCalculator::Calculate(
         .widgetDips = rect,
         .windowDips = windowRect,
         .widgetInWindowDips = {margin, margin, rect.width, rect.height},
-        .screenX = monitor.pixelX + DipToPixel(windowRect.x, monitor.dpi),
-        .screenY = monitor.pixelY + DipToPixel(windowRect.y, monitor.dpi),
+        .screenX = monitor.monitorPixelX + DipToPixel(windowRect.x, monitor.dpi),
+        .screenY = monitor.monitorPixelY + DipToPixel(windowRect.y, monitor.dpi),
         .pixelWidth = std::max(1, DipToPixel(windowRect.width, monitor.dpi)),
         .pixelHeight = std::max(1, DipToPixel(windowRect.height, monitor.dpi)),
     };
@@ -38,17 +38,37 @@ WallpaperSamplingGeometry WidgetWindowPlacementCalculator::WallpaperSampling(
     const MonitorDescriptor& monitor) noexcept {
     const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, monitor.dpi));
     return WallpaperSamplingGeometry{
-        .workAreaOnMonitorDips = {
-            static_cast<float>(monitor.pixelX - monitor.monitorPixelX) * pixelsToDips,
-            static_cast<float>(monitor.pixelY - monitor.monitorPixelY) * pixelsToDips,
-            static_cast<float>(monitor.pixelWidth) * pixelsToDips,
-            static_cast<float>(monitor.pixelHeight) * pixelsToDips,
-        },
+        .workAreaOnMonitorDips = monitor.workAreaOnMonitorDips,
         .fullMonitorDips = {
             static_cast<float>(std::max(1, monitor.monitorPixelWidth)) * pixelsToDips,
             static_cast<float>(std::max(1, monitor.monitorPixelHeight)) * pixelsToDips,
         },
     };
+}
+
+WallpaperMonitorGeometry WidgetWindowPlacementCalculator::WallpaperMonitor(
+    const MonitorDescriptor& monitor) noexcept {
+    return {
+        .monitorX = monitor.monitorPixelX,
+        .monitorY = monitor.monitorPixelY,
+        .monitorWidth = monitor.monitorPixelWidth,
+        .monitorHeight = monitor.monitorPixelHeight,
+        .virtualX = monitor.virtualPixelX,
+        .virtualY = monitor.virtualPixelY,
+        .virtualWidth = monitor.virtualPixelWidth,
+        .virtualHeight = monitor.virtualPixelHeight,
+    };
+}
+
+int WidgetWindowPlacementCalculator::DipsToPhysicalPixels(
+    float dips, unsigned int dpi) noexcept {
+    return DipToPixel(dips, dpi);
+}
+
+float WidgetWindowPlacementCalculator::PhysicalPixelsToDips(
+    int pixels, unsigned int dpi) noexcept {
+    return static_cast<float>(pixels) * 96.0f /
+        static_cast<float>(std::max(1u, dpi));
 }
 
 } // namespace ws

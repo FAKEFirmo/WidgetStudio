@@ -83,23 +83,20 @@ bool WidgetWindow::UpdatePlacement(const MonitorDescriptor& monitor) {
 
     monitorId_ = monitor.id;
     dpi_ = std::max(96u, monitor.dpi);
-    monitorSize_ = {monitor.workAreaDips.width, monitor.workAreaDips.height};
+    monitorSize_ = {monitor.monitorBoundsDips.width, monitor.monitorBoundsDips.height};
     metrics_ = host_->Grid().Calculate(monitorSize_);
     const WidgetWindowPlacement placement = WidgetWindowPlacementCalculator::Calculate(
         *widget, host_->Grid(), metrics_, monitor);
     widgetBounds_ = placement.widgetDips;
     windowBounds_ = placement.windowDips;
     widgetBoundsInWindow_ = placement.widgetInWindowDips;
-    const float pixelsToDips = 96.0f / static_cast<float>(dpi_);
-    const WallpaperSamplingGeometry sampling =
-        WidgetWindowPlacementCalculator::WallpaperSampling(monitor);
     wallpaperBounds_ = {
-        static_cast<float>(placement.screenX - monitor.monitorPixelX) * pixelsToDips,
-        static_cast<float>(placement.screenY - monitor.monitorPixelY) * pixelsToDips,
-        static_cast<float>(placement.pixelWidth) * pixelsToDips,
-        static_cast<float>(placement.pixelHeight) * pixelsToDips,
+        static_cast<float>(placement.screenX - monitor.monitorPixelX),
+        static_cast<float>(placement.screenY - monitor.monitorPixelY),
+        static_cast<float>(placement.pixelWidth),
+        static_cast<float>(placement.pixelHeight),
     };
-    wallpaperDesktopSize_ = sampling.fullMonitorDips;
+    wallpaperMonitor_ = WidgetWindowPlacementCalculator::WallpaperMonitor(monitor);
     const DesktopTargetBounds target{
         placement.screenX,
         placement.screenY,
@@ -150,7 +147,7 @@ void WidgetWindow::Paint() {
     const WidgetInstance* widget = host_ ? host_->Scene().Find(instanceId_) : nullptr;
     const HRESULT result = widget
         ? renderer_.RenderWidget(*widget, host_->EditMode(),
-            wallpaperBounds_, wallpaperDesktopSize_, widgetBoundsInWindow_)
+            wallpaperBounds_, wallpaperMonitor_, monitorId_, widgetBoundsInWindow_)
         : S_FALSE;
     EndPaint(hwnd_, &paint);
     if (result == D2DERR_RECREATE_TARGET) {

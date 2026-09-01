@@ -539,22 +539,22 @@ void WidgetStudioWindow::PaintPreview() {
     PAINTSTRUCT paint{};
     BeginPaint(preview_, &paint);
     if (previewRenderer_ && scene_ && grid_) {
-        RectF wallpaperBounds{0.0f, 0.0f, layoutBounds_.width, layoutBounds_.height};
-        SizeF wallpaperSize{layoutBounds_.width, layoutBounds_.height};
+        RectF wallpaperBounds{};
+        WallpaperMonitorGeometry wallpaperMonitor{};
         const auto monitor = std::find_if(monitors_.begin(), monitors_.end(), [this](const MonitorDescriptor& item) {
             return item.id == monitorId_;
         });
         if (monitor != monitors_.end()) {
-            const WallpaperSamplingGeometry sampling =
-                WidgetWindowPlacementCalculator::WallpaperSampling(*monitor);
-            wallpaperBounds = sampling.workAreaOnMonitorDips;
-            wallpaperSize = sampling.fullMonitorDips;
+            wallpaperBounds = {0.0f, 0.0f,
+                static_cast<float>(monitor->monitorPixelWidth),
+                static_cast<float>(monitor->monitorPixelHeight)};
+            wallpaperMonitor = WidgetWindowPlacementCalculator::WallpaperMonitor(*monitor);
         }
         const HRESULT result = previewRenderer_->Render(
             *scene_, *grid_, previewMetrics_, true,
             SendMessageW(showGrid_, BM_GETCHECK, 0, 0) == BST_CHECKED,
             previewScale_, previewOffset_,
-            {layoutBounds_.width, layoutBounds_.height}, wallpaperBounds, wallpaperSize, monitorId_);
+            {layoutBounds_.width, layoutBounds_.height}, wallpaperBounds, wallpaperMonitor, monitorId_);
         if (result == D2DERR_RECREATE_TARGET) InvalidateRect(preview_, nullptr, FALSE);
     }
     EndPaint(preview_, &paint);
@@ -727,7 +727,7 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
     const MonitorDescriptor* destination = monitorSelection != CB_ERR &&
         static_cast<std::size_t>(monitorSelection) < monitors_.size()
         ? &monitors_[static_cast<std::size_t>(monitorSelection)] : nullptr;
-    const RectF destinationBounds = destination ? destination->workAreaDips : layoutBounds_;
+    const RectF destinationBounds = destination ? destination->monitorBoundsDips : layoutBounds_;
     for (auto& widget : scene_->Widgets()) {
         if (!widget.selected || widget.monitorId != monitorId_) continue;
         const WidgetDescriptor* descriptor = scene_->DescriptorFor(widget.instanceId);
@@ -803,7 +803,7 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
     }
     if (destination) {
         monitorId_ = destination->id;
-        layoutBounds_ = destination->workAreaDips;
+        layoutBounds_ = destination->monitorBoundsDips;
         layoutMetrics_ = grid_->Calculate({layoutBounds_.width, layoutBounds_.height});
         UpdatePreviewMetrics();
     }

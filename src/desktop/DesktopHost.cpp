@@ -142,8 +142,8 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         std::to_wstring(monitorTopology_.Monitors().size()) + L" monitor(s)");
     const MonitorDescriptor& primary = *monitorTopology_.Primary();
     activeMonitorId_ = primary.id;
-    activeBounds_ = primary.workAreaDips;
-    activeMetrics_ = grid_.Calculate({primary.workAreaDips.width, primary.workAreaDips.height});
+    activeBounds_ = primary.monitorBoundsDips;
+    activeMetrics_ = grid_.Calculate({primary.monitorBoundsDips.width, primary.monitorBoundsDips.height});
     metrics_ = activeMetrics_;
     const SceneLoadStatus loadStatus = LoadScene();
     diagnostics_.Log(L"scene load status=" + std::to_wstring(static_cast<int>(loadStatus)));
@@ -291,8 +291,8 @@ void DesktopHost::OpenWidgetStudio() {
         const MonitorDescriptor* monitor = widget ? monitorTopology_.Find(widget->monitorId) : nullptr;
         if (monitor) {
             ActivateMonitor(monitor->id,
-                grid_.Calculate({monitor->workAreaDips.width, monitor->workAreaDips.height}),
-                monitor->workAreaDips);
+                grid_.Calculate({monitor->monitorBoundsDips.width, monitor->monitorBoundsDips.height}),
+                monitor->monitorBoundsDips);
         }
         SaveScene();
         ScheduleNextWidgetUpdate();
@@ -416,8 +416,8 @@ void DesktopHost::RefreshMonitorConfiguration() {
     if (!active) active = monitorTopology_.Primary();
     if (active) {
         ActivateMonitor(active->id,
-            grid_.Calculate({active->workAreaDips.width, active->workAreaDips.height}),
-            active->workAreaDips);
+            grid_.Calculate({active->monitorBoundsDips.width, active->monitorBoundsDips.height}),
+            active->monitorBoundsDips);
         metrics_ = activeMetrics_;
     }
     SynchronizeWidgetWindows();

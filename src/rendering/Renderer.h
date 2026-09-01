@@ -2,6 +2,7 @@
 
 #include "common/Geometry.h"
 #include "layout/GridLayout.h"
+#include "rendering/WallpaperPlacement.h"
 #include "scene/WidgetScene.h"
 
 #include <d2d1.h>
@@ -46,15 +47,16 @@ public:
         float sceneScale = 1.0f,
         PointF sceneOffset = {},
         SizeF sceneSize = {},
-        RectF wallpaperWindowBounds = {},
-        SizeF wallpaperDesktopSize = {},
+        RectF wallpaperWindowPixels = {},
+        WallpaperMonitorGeometry wallpaperMonitor = {},
         std::wstring_view monitorId = {});
 
     HRESULT RenderWidget(
         const WidgetInstance& widget,
         bool editMode,
-        RectF windowBoundsOnMonitor,
-        SizeF monitorSize,
+        RectF windowBoundsOnMonitorPixels,
+        WallpaperMonitorGeometry wallpaperMonitor,
+        std::wstring_view monitorId,
         RectF widgetBoundsInWindow);
 
 private:
@@ -78,9 +80,12 @@ private:
     std::shared_ptr<WallpaperCache> wallpaperCache_;
     std::uint64_t resourceGeneration_{};
     std::uint64_t wallpaperRevision_{};
-    RectF wallpaperWindowBounds_{};
-    SizeF wallpaperDesktopSize_{};
+    RectF wallpaperWindowPixels_{};
+    RectF wallpaperBitmapPixels_{};
+    WallpaperMonitorGeometry wallpaperMonitor_{};
+    std::wstring wallpaperMonitorId_;
     RectF wallpaperDestination_{};
+    int wallpaperSamplingPaddingPixels_{};
 
     struct GlassCacheEntry {
         RectF targetRect{};
