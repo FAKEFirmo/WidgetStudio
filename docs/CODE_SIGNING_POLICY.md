@@ -11,8 +11,8 @@ The repository's Windows workflow builds and tests Debug and Release configurati
 ## Team roles
 
 - Authors: contributors identified by the public Git history. Direct write access is limited to the maintainers named below.
-- Committers and reviewers: `GITHUB_MAINTAINER` — replace this placeholder with the public GitHub account or team link before applying to SignPath Foundation.
-- Approvers: `SIGNPATH_APPROVER` — replace this placeholder with the public maintainer name or group responsible for approving every Release signing request.
+- Committers and reviewers: `@FAKEFirmo`
+- Approvers: `SIGNPATH_APPROVER` — I'll replace later
 
 All members with repository or SignPath access must use multi-factor authentication. Changes from people without direct write access require maintainer review. Signing requests require manual approval by an Approver.
 
