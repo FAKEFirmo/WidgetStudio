@@ -42,8 +42,12 @@ public:
         const GridLayout& layout,
         const GridMetrics& metrics,
         bool editMode,
+        bool showGrid = true,
         float sceneScale = 1.0f,
         PointF sceneOffset = {},
+        SizeF sceneSize = {},
+        RectF wallpaperWindowBounds = {},
+        SizeF wallpaperDesktopSize = {},
         std::wstring_view monitorId = {});
 
     HRESULT RenderWidget(
@@ -57,7 +61,7 @@ private:
     HRESULT CreateDeviceResources();
     HRESULT EnsureWallpaperBitmap();
 
-    void DrawWallpaper();
+    void DrawWallpaper(RectF destination);
     void DrawGlass(const WidgetInstance& widget, RectF rect);
     void DrawGrid(const GridLayout& layout, const GridMetrics& metrics);
     void DrawWidget(const WidgetInstance& widget, RectF rect, bool editMode);
@@ -76,6 +80,7 @@ private:
     std::uint64_t wallpaperRevision_{};
     RectF wallpaperWindowBounds_{};
     SizeF wallpaperDesktopSize_{};
+    RectF wallpaperDestination_{};
 
     struct GlassCacheEntry {
         RectF targetRect{};

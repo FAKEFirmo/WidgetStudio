@@ -11,9 +11,10 @@ struct WidgetVisualStyle {
     static constexpr float kBorderWidth = 1.0f;
     static constexpr float kShadowOffset = 3.0f;
 
-    [[nodiscard]] static RectF ContentBounds(RectF outer) noexcept {
-        const float horizontal = std::min(kInnerPadding, outer.width * 0.25f);
-        const float vertical = std::min(kInnerPadding, outer.height * 0.25f);
+    [[nodiscard]] static RectF ContentBounds(RectF outer, float requestedPadding = kInnerPadding) noexcept {
+        const float padding = std::max(0.0f, requestedPadding);
+        const float horizontal = std::min(padding, outer.width * 0.25f);
+        const float vertical = std::min(padding, outer.height * 0.25f);
         return RectF{
             outer.x + horizontal,
             outer.y + vertical,

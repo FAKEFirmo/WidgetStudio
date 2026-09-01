@@ -53,6 +53,7 @@ private:
     void UpdateLayoutSettingValues();
     void UpdateWidgetSettingValue();
     void ApplyUniversalSettings();
+    void ApplyRequestedLayoutMode();
     void ApplyAlignment();
     void ApplyWidgetSetting();
     void ChooseWidgetFile();
@@ -72,6 +73,10 @@ private:
     HWND contentScale_{};
     HWND appearanceMode_{};
     HWND glass_{};
+    HWND padding_{};
+    HWND border_{};
+    HWND shadow_{};
+    HWND showGrid_{};
     HWND opacity_{};
     HWND blur_{};
     HWND radius_{};
@@ -87,6 +92,21 @@ private:
     HWND widgetCheck_{};
     HWND browse_{};
     HWND applyWidget_{};
+    HWND layoutSection_{};
+    HWND appearanceSection_{};
+    HWND widgetSection_{};
+    HWND actionsSection_{};
+    HWND applyUniversal_{};
+    HWND openLibraryButton_{};
+    HWND delete_{};
+    HWND applyAlignment_{};
+    struct FieldControls {
+        HWND label{};
+        HWND control{};
+    };
+    std::vector<FieldControls> layoutFields_;
+    std::vector<FieldControls> appearanceFields_;
+    std::vector<FieldControls> widgetFields_;
     WidgetScene* scene_{};
     GridLayout* grid_{};
     GridMetrics layoutMetrics_{};
@@ -101,6 +121,11 @@ private:
     std::function<void()> sceneChanged_;
     std::function<void()> selectionChanged_;
     std::function<void()> openLibrary_;
+    int scrollOffset_{};
+    int contentHeight_{};
+    bool updatingControls_{false};
+    HBRUSH backgroundBrush_{};
+    HBRUSH fieldBrush_{};
     struct PreviewDragState {
         std::string widgetId;
         PointF offset{};

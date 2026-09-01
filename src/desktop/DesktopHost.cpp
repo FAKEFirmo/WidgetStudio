@@ -225,7 +225,7 @@ std::optional<DesktopHost::WidgetActionHit> DesktopHost::HitTestWidgetAction(
     const RectF outer = window.WidgetBoundsInWindow();
     const auto action = widget->content->HitTestAction(WidgetHitTestContext{
         .point = localPoint,
-        .bounds = WidgetVisualStyle::ContentBounds(outer),
+        .bounds = WidgetVisualStyle::ContentBounds(outer, widget->appearance.innerPadding),
         .contentScale = widget->contentScale,
     });
     if (!action) return std::nullopt;

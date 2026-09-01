@@ -286,21 +286,37 @@ FreePlacement ReadFree(JsonReader& reader) {
 
 WidgetAppearance ReadAppearance(JsonReader& reader) {
     WidgetAppearance appearance{};
+    bool surfaceRead = false;
+    bool legacyGlass = appearance.glassEnabled;
     ReadObject(reader, [&](const std::string& key) {
         if (key == "mode") {
             const std::string mode = reader.ReadString();
             if (mode == "dark") appearance.mode = AppearanceMode::Dark;
             else if (mode == "light") appearance.mode = AppearanceMode::Light;
             else throw std::runtime_error("Unknown appearance mode");
-        } else if (key == "glass") appearance.glassEnabled = reader.ReadBoolean();
+        } else if (key == "surface") {
+            const std::string surface = reader.ReadString();
+            if (surface == "frosted") appearance.surface = SurfaceMode::Frosted;
+            else if (surface == "transparent") appearance.surface = SurfaceMode::Transparent;
+            else if (surface == "solid") appearance.surface = SurfaceMode::Solid;
+            else throw std::runtime_error("Unknown surface mode");
+            surfaceRead = true;
+        } else if (key == "glass") legacyGlass = reader.ReadBoolean();
         else if (key == "opacity") appearance.opacity = static_cast<float>(reader.ReadNumber());
         else if (key == "blurRadius") appearance.blurRadius = static_cast<float>(reader.ReadNumber());
         else if (key == "cornerRadius") appearance.cornerRadius = static_cast<float>(reader.ReadNumber());
+        else if (key == "innerPadding") appearance.innerPadding = static_cast<float>(reader.ReadNumber());
+        else if (key == "border") appearance.borderEnabled = reader.ReadBoolean();
+        else if (key == "shadow") appearance.shadowEnabled = reader.ReadBoolean();
         else reader.SkipValue();
     });
+    if (!surfaceRead) appearance.surface = legacyGlass ? SurfaceMode::Frosted : SurfaceMode::Solid;
+    appearance.glassEnabled = appearance.surface == SurfaceMode::Frosted;
     if (appearance.opacity < 0.0f || appearance.opacity > 1.0f || appearance.blurRadius < 0.0f ||
-        appearance.cornerRadius < 0.0f || !std::isfinite(appearance.opacity) ||
-        !std::isfinite(appearance.blurRadius) || !std::isfinite(appearance.cornerRadius)) {
+        appearance.cornerRadius < 0.0f || appearance.innerPadding < 0.0f ||
+        !std::isfinite(appearance.opacity) ||
+        !std::isfinite(appearance.blurRadius) || !std::isfinite(appearance.cornerRadius) ||
+        !std::isfinite(appearance.innerPadding)) {
         throw std::runtime_error("Invalid appearance values");
     }
     return appearance;
@@ -357,7 +373,8 @@ void ValidateForEncoding(const WidgetPersistenceRecord& record) {
         !std::isfinite(record.appearance.opacity) || record.appearance.opacity < 0.0f ||
         record.appearance.opacity > 1.0f || !std::isfinite(record.appearance.blurRadius) ||
         record.appearance.blurRadius < 0.0f || !std::isfinite(record.appearance.cornerRadius) ||
-        record.appearance.cornerRadius < 0.0f) {
+        record.appearance.cornerRadius < 0.0f || !std::isfinite(record.appearance.innerPadding) ||
+        record.appearance.innerPadding < 0.0f) {
         throw std::runtime_error("Scene contains invalid widget values");
     }
 }
@@ -372,6 +389,8 @@ std::string SceneJsonCodec::Encode(const WidgetSceneSnapshot& snapshot) {
     for (std::size_t index = 0; index < snapshot.size(); ++index) {
         const auto& widget = snapshot[index];
         ValidateForEncoding(widget);
+        const SurfaceMode surface = widget.appearance.surface == SurfaceMode::Frosted &&
+            !widget.appearance.glassEnabled ? SurfaceMode::Solid : widget.appearance.surface;
         output << (index == 0 ? "\n" : ",\n") << "    {\n      \"instanceId\": ";
         WriteEscapedString(output, widget.instanceId);
         output << ",\n      \"typeId\": "; WriteEscapedString(output, widget.typeId);
@@ -388,10 +407,16 @@ std::string SceneJsonCodec::Encode(const WidgetSceneSnapshot& snapshot) {
                << ",\n      \"contentScale\": " << widget.contentScale;
         output << ",\n      \"appearance\": {\"mode\": \""
                << (widget.appearance.mode == AppearanceMode::Dark ? "dark" : "light")
-               << "\", \"glass\": " << (widget.appearance.glassEnabled ? "true" : "false")
+               << "\", \"surface\": \""
+               << (surface == SurfaceMode::Frosted ? "frosted" :
+                   surface == SurfaceMode::Transparent ? "transparent" : "solid")
+               << "\", \"glass\": " << (surface == SurfaceMode::Frosted ? "true" : "false")
                << ", \"opacity\": " << widget.appearance.opacity
                << ", \"blurRadius\": " << widget.appearance.blurRadius
-               << ", \"cornerRadius\": " << widget.appearance.cornerRadius << "},";
+               << ", \"cornerRadius\": " << widget.appearance.cornerRadius
+               << ", \"innerPadding\": " << widget.appearance.innerPadding
+               << ", \"border\": " << (widget.appearance.borderEnabled ? "true" : "false")
+               << ", \"shadow\": " << (widget.appearance.shadowEnabled ? "true" : "false") << "},";
         output << "\n      \"state\": {";
         std::size_t stateIndex{};
         for (const auto& [key, value] : widget.widgetState) {

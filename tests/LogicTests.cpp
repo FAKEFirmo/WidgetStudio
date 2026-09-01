@@ -288,6 +288,17 @@ void TestWidgetWindowPlacement() {
         "DIP origins should convert to physical pixels relative to the monitor");
     Require(placement.pixelWidth == 165 && placement.pixelHeight == 135,
         "DIP window dimensions should convert using the monitor DPI");
+
+    const ws::WallpaperSamplingGeometry wallpaper =
+        ws::WidgetWindowPlacementCalculator::WallpaperSampling(monitor);
+    Require(wallpaper.workAreaOnMonitorDips.x == 0.0f &&
+        wallpaper.workAreaOnMonitorDips.y == 80.0f &&
+        wallpaper.workAreaOnMonitorDips.width == 1280.0f &&
+        wallpaper.workAreaOnMonitorDips.height == 720.0f,
+        "wallpaper sampling should express the work area relative to the full monitor");
+    Require(wallpaper.fullMonitorDips.width == 1280.0f &&
+        wallpaper.fullMonitorDips.height == 720.0f,
+        "wallpaper sampling should convert the full monitor to DIPs");
 }
 
 ws::WidgetPersistenceRecord ExampleRecord() {
@@ -302,9 +313,13 @@ ws::WidgetPersistenceRecord ExampleRecord() {
     record.contentScale = 1.25f;
     record.appearance.mode = ws::AppearanceMode::Light;
     record.appearance.glassEnabled = false;
+    record.appearance.surface = ws::SurfaceMode::Solid;
     record.appearance.opacity = 0.75f;
     record.appearance.blurRadius = 12.0f;
     record.appearance.cornerRadius = 24.0f;
+    record.appearance.innerPadding = 22.0f;
+    record.appearance.borderEnabled = false;
+    record.appearance.shadowEnabled = false;
     record.widgetState.emplace(L"caption", L"Unicode ✓ and \"quotes\"");
     return record;
 }
@@ -325,6 +340,10 @@ void TestSerialization() {
     Require(actual.widgetState == expected.widgetState, "widget state should round-trip");
     Require(std::abs(actual.contentScale - expected.contentScale) < 0.0001f,
         "content scale should round-trip");
+    Require(actual.appearance.surface == ws::SurfaceMode::Solid &&
+        actual.appearance.innerPadding == 22.0f && !actual.appearance.borderEnabled &&
+        !actual.appearance.shadowEnabled,
+        "reference appearance settings should round-trip");
 
     Require(!ws::SceneJsonCodec::Decode("{\"schemaVersion\":1,\"widgets\":[", error),
         "malformed JSON should be rejected");
@@ -428,13 +447,13 @@ void TestClockStateAndScheduling() {
         {L"showSeconds", L"true"},
         {L"showDate", L"false"},
         {L"showDivider", L"false"},
-        {L"dateFormat", L"compact"},
-        {L"fontFamily", L"Bahnschrift"},
+        {L"dateFormat", L"weekday"},
+        {L"fontFamily", L"Georgia"},
     });
     const ws::WidgetState state = clock.SaveState();
     Require(state.at(L"use24Hour") == L"false" && state.at(L"showSeconds") == L"true" &&
         state.at(L"showDate") == L"false" && state.at(L"showDivider") == L"false" &&
-        state.at(L"dateFormat") == L"compact" && state.at(L"fontFamily") == L"Bahnschrift",
+        state.at(L"dateFormat") == L"weekday" && state.at(L"fontFamily") == L"Georgia",
         "clock settings should round-trip through widget state");
     const auto now = std::chrono::system_clock::now();
     const auto next = clock.NextUpdateTime();

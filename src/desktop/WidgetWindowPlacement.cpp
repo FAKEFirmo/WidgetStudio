@@ -34,4 +34,21 @@ WidgetWindowPlacement WidgetWindowPlacementCalculator::Calculate(
     };
 }
 
+WallpaperSamplingGeometry WidgetWindowPlacementCalculator::WallpaperSampling(
+    const MonitorDescriptor& monitor) noexcept {
+    const float pixelsToDips = 96.0f / static_cast<float>(std::max(1u, monitor.dpi));
+    return WallpaperSamplingGeometry{
+        .workAreaOnMonitorDips = {
+            static_cast<float>(monitor.pixelX - monitor.monitorPixelX) * pixelsToDips,
+            static_cast<float>(monitor.pixelY - monitor.monitorPixelY) * pixelsToDips,
+            static_cast<float>(monitor.pixelWidth) * pixelsToDips,
+            static_cast<float>(monitor.pixelHeight) * pixelsToDips,
+        },
+        .fullMonitorDips = {
+            static_cast<float>(std::max(1, monitor.monitorPixelWidth)) * pixelsToDips,
+            static_cast<float>(std::max(1, monitor.monitorPixelHeight)) * pixelsToDips,
+        },
+    };
+}
+
 } // namespace ws

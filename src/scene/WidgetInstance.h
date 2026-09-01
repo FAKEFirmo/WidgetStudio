@@ -31,12 +31,22 @@ enum class AppearanceMode {
     Light,
 };
 
+enum class SurfaceMode {
+    Frosted,
+    Transparent,
+    Solid,
+};
+
 struct WidgetAppearance {
     AppearanceMode mode{AppearanceMode::Dark};
+    SurfaceMode surface{SurfaceMode::Frosted};
     bool glassEnabled{true};
     float opacity{0.62f};
     float blurRadius{18.0f};
-    float cornerRadius{22.0f};
+    float cornerRadius{24.0f};
+    float innerPadding{20.0f};
+    bool borderEnabled{true};
+    bool shadowEnabled{true};
 };
 
 struct WidgetInstance {

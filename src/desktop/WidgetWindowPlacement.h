@@ -20,12 +20,19 @@ struct WidgetWindowPlacement {
     int pixelHeight{};
 };
 
+struct WallpaperSamplingGeometry {
+    RectF workAreaOnMonitorDips{};
+    SizeF fullMonitorDips{};
+};
+
 class WidgetWindowPlacementCalculator {
 public:
     [[nodiscard]] static WidgetWindowPlacement Calculate(
         const WidgetInstance& widget,
         const GridLayout& grid,
         const GridMetrics& metrics,
+        const MonitorDescriptor& monitor) noexcept;
+    [[nodiscard]] static WallpaperSamplingGeometry WallpaperSampling(
         const MonitorDescriptor& monitor) noexcept;
 };
 

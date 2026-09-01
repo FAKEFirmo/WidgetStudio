@@ -46,23 +46,23 @@ HRESULT ClockWidget::EnsureTextFormats(IDWriteFactory& factory) const {
     if (timeFormat_ && dateTextFormat_) return S_OK;
     timeFormat_.Reset();
     dateTextFormat_.Reset();
-    HRESULT result = CreateFormat(factory, fontFamily_.c_str(), 47.0f,
+    HRESULT result = CreateFormat(factory, fontFamily_.c_str(), 58.0f,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, timeFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, fontFamily_.c_str(), 15.0f,
+    result = CreateFormat(factory, fontFamily_.c_str(), 12.0f,
         DWRITE_FONT_WEIGHT_NORMAL, dateTextFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = timeFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    result = timeFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     if (FAILED(result)) return result;
-    result = timeFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    result = timeFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     if (FAILED(result)) return result;
     result = timeFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
     if (FAILED(result)) return result;
-    result = dateTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    result = dateTextFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
     if (FAILED(result)) return result;
-    result = dateTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    result = dateTextFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
     if (FAILED(result)) return result;
-    return dateTextFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+    return dateTextFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
 }
 
 void ClockWidget::Render(const WidgetRenderContext& context) const {
@@ -79,8 +79,9 @@ void ClockWidget::Render(const WidgetRenderContext& context) const {
 
     std::array<wchar_t, 192> dateText{};
     if (showDate_) {
-        const wchar_t* datePattern = dateFormat_ == L"short" ? L"M/d/yyyy" :
-            (dateFormat_ == L"compact" ? L"ddd, MMM d" : L"dddd,\nMMMM d\nyyyy");
+        const wchar_t* datePattern = dateFormat_ == L"short" ? L"dd/MM/yyyy" :
+            dateFormat_ == L"medium" ? L"d MMMM yyyy" :
+            dateFormat_ == L"weekday" ? L"dddd, d MMMM" : L"dddd, d MMMM yyyy";
         if (GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, 0, &localTime, datePattern,
                 dateText.data(), static_cast<int>(dateText.size()), nullptr) == 0) return;
     }
@@ -102,21 +103,16 @@ void ClockWidget::Render(const WidgetRenderContext& context) const {
         D2D1::Matrix3x2F::Translation(fit.origin.x, fit.origin.y);
     const ScopedRenderTransform scopedTransform(context.renderTarget, transform);
 
-    const bool divided = showDate_ && showDivider_;
-    const D2D1_RECT_F timeBounds = divided
-        ? D2D1::RectF(0.0f, 0.0f, 176.0f, 120.0f)
-        : D2D1::RectF(0.0f, 0.0f, 270.0f, showDate_ ? 72.0f : 120.0f);
-    const D2D1_RECT_F dateBounds = divided
-        ? D2D1::RectF(190.0f, 8.0f, 270.0f, 112.0f)
-        : D2D1::RectF(0.0f, 70.0f, 270.0f, 120.0f);
+    const D2D1_RECT_F timeBounds = D2D1::RectF(0.0f, -5.0f, 270.0f, showDate_ ? 70.0f : 120.0f);
+    const D2D1_RECT_F dateBounds = D2D1::RectF(0.0f, 91.0f, 270.0f, 120.0f);
     context.renderTarget.DrawTextW(timeText.data(), static_cast<UINT32>(wcslen(timeText.data())),
         timeFormat_.Get(), &timeBounds, primaryBrush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     if (showDate_) {
         context.renderTarget.DrawTextW(dateText.data(), static_cast<UINT32>(wcslen(dateText.data())),
             dateTextFormat_.Get(), &dateBounds, secondaryBrush.Get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     }
-    if (divided) {
-        context.renderTarget.DrawLine(D2D1::Point2F(182.0f, 23.0f), D2D1::Point2F(182.0f, 97.0f),
+    if (showDate_ && showDivider_) {
+        context.renderTarget.DrawLine(D2D1::Point2F(0.0f, 75.0f), D2D1::Point2F(270.0f, 75.0f),
             secondaryBrush.Get(), 1.0f);
     }
 }
@@ -128,9 +124,9 @@ std::span<const WidgetSettingDefinition> ClockWidget::Settings() const noexcept 
         WidgetSettingDefinition{L"showDate", L"Show date", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"showDivider", L"Show divider", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"dateFormat", L"Date format", WidgetSettingKind::Choice,
-            {L"long", L"short", L"compact"}},
+            {L"long", L"medium", L"short", L"weekday"}},
         WidgetSettingDefinition{L"fontFamily", L"Font", WidgetSettingKind::Choice,
-            {L"Segoe UI Variable", L"Segoe UI", L"Bahnschrift"}},
+            {L"Segoe UI Variable", L"Segoe UI", L"Arial", L"Georgia"}},
     };
     return definitions;
 }
@@ -152,14 +148,17 @@ void ClockWidget::RestoreState(const WidgetState& state) {
     showDate_ = ReadBool(state, L"showDate", showDate_);
     showDivider_ = ReadBool(state, L"showDivider", showDivider_);
     const auto dateFormat = state.find(L"dateFormat");
-    if (dateFormat != state.end() &&
-        (dateFormat->second == L"long" || dateFormat->second == L"short" || dateFormat->second == L"compact")) {
-        dateFormat_ = dateFormat->second;
+    if (dateFormat != state.end()) {
+        const std::wstring value = dateFormat->second == L"compact" ? L"weekday" : dateFormat->second;
+        if (value == L"long" || value == L"medium" || value == L"short" || value == L"weekday") {
+            dateFormat_ = value;
+        }
     }
     const auto fontFamily = state.find(L"fontFamily");
     if (fontFamily != state.end() &&
         (fontFamily->second == L"Segoe UI Variable" || fontFamily->second == L"Segoe UI" ||
-            fontFamily->second == L"Bahnschrift") && fontFamily_ != fontFamily->second) {
+            fontFamily->second == L"Arial" || fontFamily->second == L"Georgia") &&
+        fontFamily_ != fontFamily->second) {
         fontFamily_ = fontFamily->second;
         timeFormat_.Reset();
         dateTextFormat_.Reset();

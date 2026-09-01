@@ -1,6 +1,7 @@
 #include "app/WidgetStudioWindow.h"
 
 #include "layout/OuterLayout.h"
+#include "desktop/WidgetWindowPlacement.h"
 #include "rendering/RenderingResources.h"
 
 #include <algorithm>
@@ -45,6 +46,10 @@ constexpr int kAlignment = 221;
 constexpr int kWidgetValue = 222;
 constexpr int kWidgetChoice = 223;
 constexpr int kWidgetCheck = 224;
+constexpr int kPadding = 225;
+constexpr int kBorder = 226;
+constexpr int kShadow = 227;
+constexpr int kShowGrid = 228;
 
 HWND AddControl(HWND parent, HINSTANCE instance, const wchar_t* type, const wchar_t* text,
     DWORD style, int id = 0, DWORD extendedStyle = 0) {
@@ -85,6 +90,21 @@ std::wstring ReadText(HWND control) {
     return text;
 }
 
+void EnableNativeDarkFrame(HWND window) {
+    using SetWindowAttribute = HRESULT(WINAPI*)(HWND, DWORD, LPCVOID, DWORD);
+    const HMODULE module = LoadLibraryW(L"dwmapi.dll");
+    if (!module) return;
+    const auto setAttribute = reinterpret_cast<SetWindowAttribute>(
+        GetProcAddress(module, "DwmSetWindowAttribute"));
+    if (setAttribute) {
+        const BOOL enabled = TRUE;
+        // Attribute 20 is the supported immersive dark-frame flag on current
+        // Windows 10/11 builds. Unsupported builds simply reject it.
+        static_cast<void>(setAttribute(window, 20, &enabled, sizeof(enabled)));
+    }
+    FreeLibrary(module);
+}
+
 } // namespace
 
 WidgetStudioWindow::~WidgetStudioWindow() { Close(); }
@@ -115,6 +135,8 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     sceneChanged_ = std::move(sceneChanged);
     selectionChanged_ = std::move(selectionChanged);
     openLibrary_ = std::move(openLibrary);
+    backgroundBrush_ = CreateSolidBrush(RGB(13, 15, 18));
+    fieldBrush_ = CreateSolidBrush(RGB(22, 25, 30));
 
     WNDCLASSEXW previewClass{};
     previewClass.cbSize = sizeof(previewClass);
@@ -122,23 +144,30 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     previewClass.hInstance = instance_;
     previewClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     previewClass.lpszClassName = kPreviewClass;
-    if (!RegisterClassExW(&previewClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    if (!RegisterClassExW(&previewClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        Close();
+        return false;
+    }
     WNDCLASSEXW studioClass{};
     studioClass.cbSize = sizeof(studioClass);
     studioClass.lpfnWndProc = WindowProc;
     studioClass.hInstance = instance_;
     studioClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     studioClass.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
-    studioClass.hbrBackground = reinterpret_cast<HBRUSH>(static_cast<INT_PTR>(COLOR_BTNFACE + 1));
+    studioClass.hbrBackground = static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH));
     studioClass.lpszClassName = kStudioClass;
-    if (!RegisterClassExW(&studioClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    if (!RegisterClassExW(&studioClass) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) {
+        Close();
+        return false;
+    }
 
     const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
     hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, L"Widget Studio",
-        WS_OVERLAPPEDWINDOW, CW_USEDEFAULT, CW_USEDEFAULT,
+        WS_OVERLAPPEDWINDOW | WS_VSCROLL, CW_USEDEFAULT, CW_USEDEFAULT,
         static_cast<int>(1120.0f * initialScale), static_cast<int>(820.0f * initialScale),
         owner, nullptr, instance_, this);
     if (!hwnd_ || !preview_) { Close(); return false; }
+    EnableNativeDarkFrame(hwnd_);
     previewRenderer_ = std::make_unique<Renderer>(
         std::move(wallpaperCache), std::move(renderingResources));
     if (FAILED(previewRenderer_->Initialize(preview_))) { Close(); return false; }
@@ -154,6 +183,10 @@ void WidgetStudioWindow::Close() noexcept {
     if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
     previewRenderer_.reset();
     assetLibrary_.reset();
+    if (backgroundBrush_) DeleteObject(backgroundBrush_);
+    if (fieldBrush_) DeleteObject(fieldBrush_);
+    backgroundBrush_ = nullptr;
+    fieldBrush_ = nullptr;
     hwnd_ = nullptr;
     ResetControlHandles();
 }
@@ -170,6 +203,10 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     contentScale_ = nullptr;
     appearanceMode_ = nullptr;
     glass_ = nullptr;
+    padding_ = nullptr;
+    border_ = nullptr;
+    shadow_ = nullptr;
+    showGrid_ = nullptr;
     opacity_ = nullptr;
     blur_ = nullptr;
     radius_ = nullptr;
@@ -185,6 +222,20 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     widgetCheck_ = nullptr;
     browse_ = nullptr;
     applyWidget_ = nullptr;
+    layoutSection_ = nullptr;
+    appearanceSection_ = nullptr;
+    widgetSection_ = nullptr;
+    actionsSection_ = nullptr;
+    applyUniversal_ = nullptr;
+    openLibraryButton_ = nullptr;
+    delete_ = nullptr;
+    applyAlignment_ = nullptr;
+    layoutFields_.clear();
+    appearanceFields_.clear();
+    widgetFields_.clear();
+    scrollOffset_ = 0;
+    contentHeight_ = 0;
+    updatingControls_ = false;
     previewDrag_.reset();
 }
 
@@ -205,6 +256,11 @@ void WidgetStudioWindow::UpdateLayoutContext(
     layoutMetrics_ = layoutMetrics;
     layoutBounds_ = layoutBounds;
     monitorId_ = std::move(monitorId);
+    if (hwnd_) {
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        LayoutControls(client.right - client.left, client.bottom - client.top);
+    }
     UpdatePreviewMetrics();
     if (preview_) InvalidateRect(preview_, nullptr, FALSE);
 }
@@ -241,57 +297,100 @@ LRESULT CALLBACK WidgetStudioWindow::PreviewProc(HWND hwnd, UINT message, WPARAM
 }
 
 bool WidgetStudioWindow::CreateControls() {
+    layoutFields_.clear();
+    appearanceFields_.clear();
+    widgetFields_.clear();
     preview_ = CreateWindowExW(WS_EX_CLIENTEDGE, kPreviewClass, nullptr, WS_CHILD | WS_VISIBLE,
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
-    AddControl(hwnd_, instance_, L"STATIC", L"Monitor", 0);
+    layoutSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Layout && placement", BS_GROUPBOX);
+    appearanceSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Appearance", BS_GROUPBOX);
+    widgetSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Widget content", BS_GROUPBOX);
+    actionsSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Actions && alignment", BS_GROUPBOX);
+    HWND monitorLabel = AddControl(hwnd_, instance_, L"STATIC", L"Monitor", 0);
     monitorChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kMonitorChoice);
     for (const MonitorDescriptor& monitor : monitors_) {
         const std::wstring label = monitor.id + (monitor.primary ? L" (Primary)" : L"");
         SendMessageW(monitorChoice_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(label.c_str()));
     }
-    AddControl(hwnd_, instance_, L"STATIC", L"Layout", 0);
+    HWND layoutLabel = AddControl(hwnd_, instance_, L"STATIC", L"Layout mode", 0);
     layoutMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kLayoutMode);
     SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Grid"));
-    SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Free"));
+    SendMessageW(layoutMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Free / Align"));
+    layoutFields_.push_back({layoutLabel, layoutMode_});
+    layoutFields_.push_back({monitorLabel, monitorChoice_});
     locked_ = AddControl(hwnd_, instance_, L"BUTTON", L"Locked",
         BS_AUTOCHECKBOX | WS_TABSTOP, kLocked);
-    AddControl(hwnd_, instance_, L"STATIC", L"Scale", 0);
+    HWND scaleLabel = AddControl(hwnd_, instance_, L"STATIC", L"Content scale", 0);
     contentScale_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kContentScale, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Appearance", 0);
+    layoutFields_.push_back({scaleLabel, contentScale_});
+    HWND lockLabel = AddControl(hwnd_, instance_, L"STATIC", L"Lock widget", 0);
+    layoutFields_.push_back({lockLabel, locked_});
+    HWND appearanceLabel = AddControl(hwnd_, instance_, L"STATIC", L"Theme", 0);
     appearanceMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kAppearanceMode);
     SendMessageW(appearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
     SendMessageW(appearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
-    glass_ = AddControl(hwnd_, instance_, L"BUTTON", L"Glass",
-        BS_AUTOCHECKBOX | WS_TABSTOP, kGlass);
-    AddControl(hwnd_, instance_, L"STATIC", L"Opacity", 0);
+    appearanceFields_.push_back({appearanceLabel, appearanceMode_});
+    glass_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kGlass);
+    SendMessageW(glass_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Frosted glass"));
+    SendMessageW(glass_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Transparent / text-only"));
+    SendMessageW(glass_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Solid translucent"));
+    HWND glassLabel = AddControl(hwnd_, instance_, L"STATIC", L"Surface mode", 0);
+    appearanceFields_.push_back({glassLabel, glass_});
+    HWND opacityLabel = AddControl(hwnd_, instance_, L"STATIC", L"Opacity (0-1)", 0);
     opacity_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kOpacity, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Blur", 0);
+    appearanceFields_.push_back({opacityLabel, opacity_});
+    HWND blurLabel = AddControl(hwnd_, instance_, L"STATIC", L"Blur radius (DIP)", 0);
     blur_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kBlur, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Radius", 0);
+    appearanceFields_.push_back({blurLabel, blur_});
+    HWND radiusLabel = AddControl(hwnd_, instance_, L"STATIC", L"Corner radius (DIP)", 0);
     radius_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kRadius, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Column / X", 0);
+    appearanceFields_.push_back({radiusLabel, radius_});
+    HWND paddingLabel = AddControl(hwnd_, instance_, L"STATIC", L"Internal padding (DIP)", 0);
+    padding_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kPadding, WS_EX_CLIENTEDGE);
+    appearanceFields_.push_back({paddingLabel, padding_});
+    HWND borderLabel = AddControl(hwnd_, instance_, L"STATIC", L"Border", 0);
+    border_ = AddControl(hwnd_, instance_, L"BUTTON", L"1 DIP subtle border",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kBorder);
+    appearanceFields_.push_back({borderLabel, border_});
+    HWND shadowLabel = AddControl(hwnd_, instance_, L"STATIC", L"Shadow", 0);
+    shadow_ = AddControl(hwnd_, instance_, L"BUTTON", L"Subtle shadow",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kShadow);
+    appearanceFields_.push_back({shadowLabel, shadow_});
+    HWND positionALabel = AddControl(hwnd_, instance_, L"STATIC", L"Grid column / Free X", 0);
     positionA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kPositionA, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Row / Y", 0);
+    HWND positionBLabel = AddControl(hwnd_, instance_, L"STATIC", L"Grid row / Free Y", 0);
     positionB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kPositionB, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Col span / Width", 0);
+    HWND sizeALabel = AddControl(hwnd_, instance_, L"STATIC", L"Column span / Free width", 0);
     sizeA_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kSizeA, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"STATIC", L"Row span / Height", 0);
+    HWND sizeBLabel = AddControl(hwnd_, instance_, L"STATIC", L"Row span / Free height", 0);
     sizeB_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kSizeB, WS_EX_CLIENTEDGE);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Apply universal settings", BS_PUSHBUTTON | WS_TABSTOP, kApplyUniversal);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Add widget...", BS_PUSHBUTTON | WS_TABSTOP, kOpenLibrary);
+    layoutFields_.insert(layoutFields_.begin() + 2, {
+        {positionALabel, positionA_}, {positionBLabel, positionB_},
+        {sizeALabel, sizeA_}, {sizeBLabel, sizeB_}});
+    HWND showGridLabel = AddControl(hwnd_, instance_, L"STATIC", L"Preview grid", 0);
+    showGrid_ = AddControl(hwnd_, instance_, L"BUTTON", L"Show while editing",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kShowGrid);
+    SendMessageW(showGrid_, BM_SETCHECK, BST_CHECKED, 0);
+    layoutFields_.push_back({showGridLabel, showGrid_});
+    applyUniversal_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply appearance && placement",
+        BS_PUSHBUTTON | WS_TABSTOP, kApplyUniversal);
+    openLibraryButton_ = AddControl(hwnd_, instance_, L"BUTTON", L"Add widget...",
+        BS_PUSHBUTTON | WS_TABSTOP, kOpenLibrary);
     duplicate_ = AddControl(hwnd_, instance_, L"BUTTON", L"Duplicate", BS_PUSHBUTTON | WS_TABSTOP, kDuplicateWidget);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Remove", BS_PUSHBUTTON | WS_TABSTOP, kDeleteWidget);
+    delete_ = AddControl(hwnd_, instance_, L"BUTTON", L"Remove", BS_PUSHBUTTON | WS_TABSTOP, kDeleteWidget);
     alignment_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kAlignment);
     for (const wchar_t* item : {L"Align left", L"Horizontal center", L"Align right", L"Align top",
@@ -299,76 +398,124 @@ bool WidgetStudioWindow::CreateControls() {
             L"Distribute horizontally", L"Distribute vertically"})
         SendMessageW(alignment_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(item));
     SendMessageW(alignment_, CB_SETCURSEL, 0, 0);
-    AddControl(hwnd_, instance_, L"BUTTON", L"Apply alignment", BS_PUSHBUTTON | WS_TABSTOP, kApplyAlignment);
-    AddControl(hwnd_, instance_, L"STATIC", L"Widget setting", 0);
+    applyAlignment_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply alignment",
+        BS_PUSHBUTTON | WS_TABSTOP, kApplyAlignment);
+    HWND widgetSettingLabel = AddControl(hwnd_, instance_, L"STATIC", L"Setting", 0);
     widgetSetting_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kSettingCombo);
+    widgetFields_.push_back({widgetSettingLabel, widgetSetting_});
+    HWND widgetValueLabel = AddControl(hwnd_, instance_, L"STATIC", L"Value", 0);
     widgetValue_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
         ES_AUTOHSCROLL | WS_TABSTOP, kWidgetValue, WS_EX_CLIENTEDGE);
     widgetChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kWidgetChoice);
     widgetCheck_ = AddControl(hwnd_, instance_, L"BUTTON", L"Enabled",
         BS_AUTOCHECKBOX | WS_TABSTOP, kWidgetCheck);
+    widgetFields_.push_back({widgetValueLabel, widgetValue_});
     ShowWindow(widgetChoice_, SW_HIDE);
     ShowWindow(widgetCheck_, SW_HIDE);
     browse_ = AddControl(hwnd_, instance_, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP, kBrowse);
     ShowWindow(browse_, SW_HIDE);
     applyWidget_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply widget setting", BS_PUSHBUTTON | WS_TABSTOP, kApplyWidget);
     return preview_ && monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
-        appearanceMode_ && glass_ && opacity_ && blur_ && radius_ &&
+        appearanceMode_ && glass_ && opacity_ && blur_ && radius_ && padding_ && border_ && shadow_ && showGrid_ &&
         positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ &&
-        widgetSetting_ && widgetValue_ && widgetChoice_ && widgetCheck_ && browse_ && applyWidget_;
+        widgetSetting_ && widgetValue_ && widgetChoice_ && widgetCheck_ && browse_ && applyWidget_ &&
+        layoutSection_ && appearanceSection_ && widgetSection_ && actionsSection_ &&
+        applyUniversal_ && openLibraryButton_ && delete_ && applyAlignment_;
 }
 
 void WidgetStudioWindow::LayoutControls(int width, int height) {
     const float dpiScale = static_cast<float>(std::max(96u, GetDpiForWindow(hwnd_))) / 96.0f;
-    const int margin = static_cast<int>(16.0f * dpiScale);
-    const int previewHeight = std::clamp(height * 58 / 100,
-        static_cast<int>(280.0f * dpiScale), static_cast<int>(470.0f * dpiScale));
-    MoveWindow(preview_, margin, margin, std::max(1, width - margin * 2), previewHeight, TRUE);
-    std::vector<HWND> children;
-    for (HWND child = GetWindow(hwnd_, GW_CHILD); child; child = GetWindow(child, GW_HWNDNEXT)) {
-        if (child != preview_) children.push_back(child);
-    }
-    std::reverse(children.begin(), children.end());
-    int x = margin;
-    int y = previewHeight + margin * 2;
-    int valueX = 0;
-    int valueY = 0;
-    const int labelWidth = static_cast<int>(105.0f * dpiScale);
-    const int editWidth = static_cast<int>(72.0f * dpiScale);
-    const int standardHeight = static_cast<int>(26.0f * dpiScale);
-    const int comboHeight = static_cast<int>(220.0f * dpiScale);
-    const int gap = static_cast<int>(7.0f * dpiScale);
-    for (HWND child : children) {
-        if (child == widgetValue_) {
-            valueX = x;
-            valueY = y;
-            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), standardHeight, TRUE);
-            continue;
+    const int margin = static_cast<int>(18.0f * dpiScale);
+    const int gap = static_cast<int>(14.0f * dpiScale);
+    const int rowHeight = static_cast<int>(38.0f * dpiScale);
+    const int controlHeight = static_cast<int>(26.0f * dpiScale);
+    const int contentWidth = std::max(1, width - margin * 2);
+    const float monitorAspect = layoutBounds_.height > 0.0f
+        ? layoutBounds_.width / layoutBounds_.height : 16.0f / 9.0f;
+    const int previewHeight = std::max(1, static_cast<int>(std::lround(
+        static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
+    const auto sectionHeight = [rowHeight, dpiScale](std::size_t fields, int extraRows) {
+        return static_cast<int>(34.0f * dpiScale) +
+            (static_cast<int>((fields + 1) / 2) + extraRows) * rowHeight +
+            static_cast<int>(12.0f * dpiScale);
+    };
+    const int layoutHeight = sectionHeight(layoutFields_.size(), 1);
+    const int appearanceHeight = sectionHeight(appearanceFields_.size(), 1);
+    const int widgetHeight = sectionHeight(widgetFields_.size(), 1);
+    const int actionsHeight = static_cast<int>(112.0f * dpiScale);
+    contentHeight_ = margin + previewHeight + gap + layoutHeight + gap + appearanceHeight + gap +
+        widgetHeight + gap + actionsHeight + margin;
+    scrollOffset_ = std::clamp(scrollOffset_, 0, std::max(0, contentHeight_ - height));
+
+    SCROLLINFO scroll{sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS};
+    scroll.nMin = 0;
+    scroll.nMax = std::max(0, contentHeight_ - 1);
+    scroll.nPage = static_cast<UINT>(std::max(1, height));
+    scroll.nPos = scrollOffset_;
+    SetScrollInfo(hwnd_, SB_VERT, &scroll, TRUE);
+
+    int y = margin - scrollOffset_;
+    MoveWindow(preview_, margin, y, contentWidth, previewHeight, TRUE);
+    y += previewHeight + gap;
+
+    const auto placeSection = [&](HWND group, const std::vector<FieldControls>& fields,
+        int top, int sectionSize, HWND action) {
+        MoveWindow(group, margin, top, contentWidth, sectionSize, TRUE);
+        const int innerX = margin + static_cast<int>(14.0f * dpiScale);
+        const int innerWidth = contentWidth - static_cast<int>(28.0f * dpiScale);
+        const int columnGap = static_cast<int>(22.0f * dpiScale);
+        const int columnWidth = (innerWidth - columnGap) / 2;
+        const int labelWidth = std::max(static_cast<int>(125.0f * dpiScale), columnWidth * 46 / 100);
+        const int firstY = top + static_cast<int>(28.0f * dpiScale);
+        for (std::size_t index = 0; index < fields.size(); ++index) {
+            const int column = static_cast<int>(index % 2);
+            const int row = static_cast<int>(index / 2);
+            const int x = innerX + column * (columnWidth + columnGap);
+            const int fieldY = firstY + row * rowHeight;
+            MoveWindow(fields[index].label, x, fieldY + static_cast<int>(5.0f * dpiScale),
+                labelWidth, controlHeight, TRUE);
+            const int valueX = x + labelWidth;
+            const int valueWidth = std::max(1, columnWidth - labelWidth);
+            wchar_t className[24]{};
+            GetClassNameW(fields[index].control, className, static_cast<int>(std::size(className)));
+            const int dropHeight = wcscmp(className, L"ComboBox") == 0
+                ? static_cast<int>(220.0f * dpiScale) : controlHeight;
+            MoveWindow(fields[index].control, valueX, fieldY, valueWidth, dropHeight, TRUE);
+            if (fields[index].control == widgetValue_) {
+                MoveWindow(widgetChoice_, valueX, fieldY, valueWidth,
+                    static_cast<int>(220.0f * dpiScale), TRUE);
+                MoveWindow(widgetCheck_, valueX, fieldY, valueWidth, controlHeight, TRUE);
+                MoveWindow(browse_, valueX, fieldY + controlHeight + 2, valueWidth, controlHeight, TRUE);
+            }
         }
-        if (child == widgetChoice_) {
-            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), comboHeight, TRUE);
-            continue;
+        if (action) {
+            MoveWindow(action, innerX,
+                top + sectionSize - controlHeight - static_cast<int>(10.0f * dpiScale),
+                static_cast<int>(220.0f * dpiScale), controlHeight, TRUE);
         }
-        if (child == widgetCheck_) {
-            MoveWindow(child, valueX, valueY, static_cast<int>(155.0f * dpiScale), standardHeight, TRUE);
-            x += static_cast<int>(162.0f * dpiScale);
-            continue;
-        }
-        wchar_t className[32]{};
-        GetClassNameW(child, className, static_cast<int>(std::size(className)));
-        int controlWidth = wcscmp(className, L"STATIC") == 0 ? labelWidth : editWidth;
-        if (wcscmp(className, L"BUTTON") == 0) controlWidth = static_cast<int>(145.0f * dpiScale);
-        if (wcscmp(className, L"COMBOBOX") == 0) controlWidth = static_cast<int>(155.0f * dpiScale);
-        if (x + controlWidth > width - margin) {
-            x = margin;
-            y += static_cast<int>(34.0f * dpiScale);
-        }
-        const int controlHeight = wcscmp(className, L"COMBOBOX") == 0 ? comboHeight : standardHeight;
-        MoveWindow(child, x, y, controlWidth, controlHeight, TRUE);
-        x += controlWidth + gap;
-    }
+    };
+
+    placeSection(layoutSection_, layoutFields_, y, layoutHeight, applyUniversal_);
+    y += layoutHeight + gap;
+    placeSection(appearanceSection_, appearanceFields_, y, appearanceHeight, nullptr);
+    y += appearanceHeight + gap;
+    placeSection(widgetSection_, widgetFields_, y, widgetHeight, applyWidget_);
+    y += widgetHeight + gap;
+
+    MoveWindow(actionsSection_, margin, y, contentWidth, actionsHeight, TRUE);
+    const int actionX = margin + gap;
+    const int actionY = y + static_cast<int>(28.0f * dpiScale);
+    const int buttonWidth = static_cast<int>(120.0f * dpiScale);
+    MoveWindow(openLibraryButton_, actionX, actionY, buttonWidth, controlHeight, TRUE);
+    MoveWindow(duplicate_, actionX + buttonWidth + gap, actionY, buttonWidth, controlHeight, TRUE);
+    MoveWindow(delete_, actionX + (buttonWidth + gap) * 2, actionY, buttonWidth, controlHeight, TRUE);
+    const int alignY = actionY + rowHeight;
+    MoveWindow(alignment_, actionX, alignY, static_cast<int>(250.0f * dpiScale),
+        static_cast<int>(220.0f * dpiScale), TRUE);
+    MoveWindow(applyAlignment_, actionX + static_cast<int>(264.0f * dpiScale), alignY,
+        static_cast<int>(140.0f * dpiScale), controlHeight, TRUE);
 }
 
 void WidgetStudioWindow::UpdatePreviewMetrics() {
@@ -392,8 +539,22 @@ void WidgetStudioWindow::PaintPreview() {
     PAINTSTRUCT paint{};
     BeginPaint(preview_, &paint);
     if (previewRenderer_ && scene_ && grid_) {
+        RectF wallpaperBounds{0.0f, 0.0f, layoutBounds_.width, layoutBounds_.height};
+        SizeF wallpaperSize{layoutBounds_.width, layoutBounds_.height};
+        const auto monitor = std::find_if(monitors_.begin(), monitors_.end(), [this](const MonitorDescriptor& item) {
+            return item.id == monitorId_;
+        });
+        if (monitor != monitors_.end()) {
+            const WallpaperSamplingGeometry sampling =
+                WidgetWindowPlacementCalculator::WallpaperSampling(*monitor);
+            wallpaperBounds = sampling.workAreaOnMonitorDips;
+            wallpaperSize = sampling.fullMonitorDips;
+        }
         const HRESULT result = previewRenderer_->Render(
-            *scene_, *grid_, previewMetrics_, true, previewScale_, previewOffset_, monitorId_);
+            *scene_, *grid_, previewMetrics_, true,
+            SendMessageW(showGrid_, BM_GETCHECK, 0, 0) == BST_CHECKED,
+            previewScale_, previewOffset_,
+            {layoutBounds_.width, layoutBounds_.height}, wallpaperBounds, wallpaperSize, monitorId_);
         if (result == D2DERR_RECREATE_TARGET) InvalidateRect(preview_, nullptr, FALSE);
     }
     EndPaint(preview_, &paint);
@@ -407,6 +568,7 @@ WidgetInstance* WidgetStudioWindow::PrimaryWidget() noexcept {
 }
 
 void WidgetStudioWindow::UpdateControlsFromSelection() {
+    updatingControls_ = true;
     WidgetInstance* widget = PrimaryWidget();
     const std::size_t activeSelectionCount = scene_ ? static_cast<std::size_t>(std::count_if(
         scene_->Widgets().begin(), scene_->Widgets().end(), [this](const WidgetInstance& item) {
@@ -432,6 +594,9 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     EnableWindow(opacity_, hasWidget);
     EnableWindow(blur_, hasWidget);
     EnableWindow(radius_, hasWidget);
+    EnableWindow(padding_, hasWidget);
+    EnableWindow(border_, hasWidget);
+    EnableWindow(shadow_, hasWidget);
     EnableWindow(positionA_, single);
     EnableWindow(positionB_, single);
     EnableWindow(sizeA_, single && resizable);
@@ -444,6 +609,7 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
         SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
         ShowWindow(widgetValue_, SW_HIDE); ShowWindow(widgetChoice_, SW_HIDE);
         ShowWindow(widgetCheck_, SW_HIDE); ShowWindow(browse_, SW_HIDE);
+        updatingControls_ = false;
         return;
     }
     const auto monitor = std::find_if(monitors_.begin(), monitors_.end(), [widget](const MonitorDescriptor& item) {
@@ -455,16 +621,20 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     SendMessageW(locked_, BM_SETCHECK, widget->locked ? BST_CHECKED : BST_UNCHECKED, 0);
     SetNumber(contentScale_, widget->contentScale);
     SendMessageW(appearanceMode_, CB_SETCURSEL, widget->appearance.mode == AppearanceMode::Dark ? 0 : 1, 0);
-    SendMessageW(glass_, BM_SETCHECK, widget->appearance.glassEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(glass_, CB_SETCURSEL, static_cast<WPARAM>(widget->appearance.surface), 0);
     SetNumber(opacity_, widget->appearance.opacity);
     SetNumber(blur_, widget->appearance.blurRadius);
     SetNumber(radius_, widget->appearance.cornerRadius);
+    SetNumber(padding_, widget->appearance.innerPadding);
+    SendMessageW(border_, BM_SETCHECK, widget->appearance.borderEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(shadow_, BM_SETCHECK, widget->appearance.shadowEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
     UpdateLayoutSettingValues();
     SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
     for (const auto& definition : widget->content->Settings())
         SendMessageW(widgetSetting_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(definition.displayName.c_str()));
     if (!widget->content->Settings().empty()) SendMessageW(widgetSetting_, CB_SETCURSEL, 0, 0);
     UpdateWidgetSettingValue();
+    updatingControls_ = false;
 }
 
 void WidgetStudioWindow::UpdateLayoutSettingValues() {
@@ -544,6 +714,7 @@ void WidgetStudioWindow::UpdateWidgetSettingValue() {
 }
 
 void WidgetStudioWindow::ApplyUniversalSettings() {
+    if (updatingControls_) return;
     WidgetInstance* primary = PrimaryWidget();
     if (!primary) return;
     const LayoutMode mode = SendMessageW(layoutMode_, CB_GETCURSEL, 0, 0) == 1 ? LayoutMode::Free : LayoutMode::Grid;
@@ -571,10 +742,17 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
         }
         widget.appearance.mode = SendMessageW(appearanceMode_, CB_GETCURSEL, 0, 0) == 1
             ? AppearanceMode::Light : AppearanceMode::Dark;
-        widget.appearance.glassEnabled = SendMessageW(glass_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        const LRESULT surface = SendMessageW(glass_, CB_GETCURSEL, 0, 0);
+        widget.appearance.surface = surface == 1 ? SurfaceMode::Transparent :
+            surface == 2 ? SurfaceMode::Solid : SurfaceMode::Frosted;
+        widget.appearance.glassEnabled = widget.appearance.surface == SurfaceMode::Frosted;
         widget.appearance.opacity = std::clamp(static_cast<float>(ReadNumber(opacity_, widget.appearance.opacity)), 0.0f, 1.0f);
         widget.appearance.blurRadius = std::clamp(static_cast<float>(ReadNumber(blur_, widget.appearance.blurRadius)), 0.0f, 128.0f);
         widget.appearance.cornerRadius = std::clamp(static_cast<float>(ReadNumber(radius_, widget.appearance.cornerRadius)), 0.0f, 128.0f);
+        widget.appearance.innerPadding = std::clamp(
+            static_cast<float>(ReadNumber(padding_, widget.appearance.innerPadding)), 0.0f, 64.0f);
+        widget.appearance.borderEnabled = SendMessageW(border_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        widget.appearance.shadowEnabled = SendMessageW(shadow_, BM_GETCHECK, 0, 0) == BST_CHECKED;
         if (widget.layoutMode == LayoutMode::Grid && single) {
             const int minimumColumns = descriptor
                 ? std::min(grid_->Columns(), descriptor->minimumGridSize.columns) : 1;
@@ -632,6 +810,22 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
     NotifySceneChanged();
 }
 
+void WidgetStudioWindow::ApplyRequestedLayoutMode() {
+    if (updatingControls_ || !scene_ || !grid_) return;
+    const LayoutMode mode = SendMessageW(layoutMode_, CB_GETCURSEL, 0, 0) == 1
+        ? LayoutMode::Free : LayoutMode::Grid;
+    bool changed = false;
+    for (WidgetInstance& widget : scene_->Widgets()) {
+        if (!widget.selected || widget.monitorId != monitorId_) continue;
+        if (widget.layoutMode != mode) {
+            scene_->SetWidgetLayoutMode(widget.instanceId, mode, *grid_, layoutMetrics_);
+            changed = true;
+        }
+    }
+    if (changed) NotifySceneChanged();
+    else UpdateLayoutSettingValues();
+}
+
 void WidgetStudioWindow::ApplyAlignment() {
     const LRESULT selection = SendMessageW(alignment_, CB_GETCURSEL, 0, 0);
     if (selection != CB_ERR && scene_->AlignSelected(
@@ -640,6 +834,7 @@ void WidgetStudioWindow::ApplyAlignment() {
 }
 
 void WidgetStudioWindow::ApplyWidgetSetting() {
+    if (updatingControls_) return;
     WidgetInstance* widget = PrimaryWidget();
     if (!widget) return;
     const LRESULT index = SendMessageW(widgetSetting_, CB_GETCURSEL, 0, 0);
@@ -747,6 +942,60 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         return 0;
     }
     case WM_SIZE: LayoutControls(LOWORD(lParam), HIWORD(lParam)); UpdatePreviewMetrics(); return 0;
+    case WM_VSCROLL: {
+        SCROLLINFO scroll{sizeof(scroll), SIF_ALL};
+        GetScrollInfo(hwnd_, SB_VERT, &scroll);
+        int requested = scrollOffset_;
+        switch (LOWORD(wParam)) {
+        case SB_LINEUP: requested -= 38; break;
+        case SB_LINEDOWN: requested += 38; break;
+        case SB_PAGEUP: requested -= static_cast<int>(scroll.nPage); break;
+        case SB_PAGEDOWN: requested += static_cast<int>(scroll.nPage); break;
+        case SB_THUMBTRACK: requested = scroll.nTrackPos; break;
+        case SB_TOP: requested = 0; break;
+        case SB_BOTTOM: requested = scroll.nMax; break;
+        default: return 0;
+        }
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        const int clientHeight = static_cast<int>(client.bottom - client.top);
+        scrollOffset_ = std::clamp(requested, 0,
+            std::max(0, contentHeight_ - clientHeight));
+        LayoutControls(client.right - client.left, client.bottom - client.top);
+        return 0;
+    }
+    case WM_MOUSEWHEEL: {
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        const int clientHeight = static_cast<int>(client.bottom - client.top);
+        const int lines = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
+        scrollOffset_ = std::clamp(scrollOffset_ - lines * 76, 0,
+            std::max(0, contentHeight_ - clientHeight));
+        LayoutControls(client.right - client.left, client.bottom - client.top);
+        return 0;
+    }
+    case WM_ERASEBKGND: {
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        FillRect(reinterpret_cast<HDC>(wParam), &client,
+            backgroundBrush_ ? backgroundBrush_ : static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)));
+        return 1;
+    }
+    case WM_CTLCOLORSTATIC:
+    case WM_CTLCOLORBTN: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(dc, RGB(232, 235, 239));
+        SetBkColor(dc, RGB(13, 15, 18));
+        SetBkMode(dc, TRANSPARENT);
+        return reinterpret_cast<LRESULT>(backgroundBrush_);
+    }
+    case WM_CTLCOLOREDIT:
+    case WM_CTLCOLORLISTBOX: {
+        HDC dc = reinterpret_cast<HDC>(wParam);
+        SetTextColor(dc, RGB(245, 247, 250));
+        SetBkColor(dc, RGB(22, 25, 30));
+        return reinterpret_cast<LRESULT>(fieldBrush_);
+    }
     case WM_DPICHANGED: {
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(hwnd_, nullptr, suggested->left, suggested->top,
@@ -772,10 +1021,43 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
             if (scene_->RemoveSelectedWidgets() > 0) NotifySceneChanged();
             return 0;
         case kLayoutMode:
-            if (HIWORD(wParam) == CBN_SELCHANGE) { UpdateLayoutSettingValues(); return 0; }
+            if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyRequestedLayoutMode(); return 0; }
+            break;
+        case kMonitorChoice:
+        case kAppearanceMode:
+        case kGlass:
+            if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyUniversalSettings(); return 0; }
+            break;
+        case kLocked:
+        case kBorder:
+        case kShadow:
+            if (HIWORD(wParam) == BN_CLICKED) { ApplyUniversalSettings(); return 0; }
+            break;
+        case kShowGrid:
+            if (HIWORD(wParam) == BN_CLICKED) { InvalidateRect(preview_, nullptr, FALSE); return 0; }
+            break;
+        case kContentScale:
+        case kOpacity:
+        case kBlur:
+        case kRadius:
+        case kPadding:
+        case kPositionA:
+        case kPositionB:
+        case kSizeA:
+        case kSizeB:
+            if (HIWORD(wParam) == EN_KILLFOCUS) { ApplyUniversalSettings(); return 0; }
             break;
         case kSettingCombo:
             if (HIWORD(wParam) == CBN_SELCHANGE) { UpdateWidgetSettingValue(); return 0; }
+            break;
+        case kWidgetChoice:
+            if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyWidgetSetting(); return 0; }
+            break;
+        case kWidgetCheck:
+            if (HIWORD(wParam) == BN_CLICKED) { ApplyWidgetSetting(); return 0; }
+            break;
+        case kWidgetValue:
+            if (HIWORD(wParam) == EN_KILLFOCUS) { ApplyWidgetSetting(); return 0; }
             break;
         default: break;
         }
@@ -788,6 +1070,10 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         const HWND destroyedWindow = hwnd_;
         previewRenderer_.reset();
         assetLibrary_.reset();
+        if (backgroundBrush_) DeleteObject(backgroundBrush_);
+        if (fieldBrush_) DeleteObject(fieldBrush_);
+        backgroundBrush_ = nullptr;
+        fieldBrush_ = nullptr;
         SetWindowLongPtrW(destroyedWindow, GWLP_USERDATA, 0);
         hwnd_ = nullptr;
         ResetControlHandles();

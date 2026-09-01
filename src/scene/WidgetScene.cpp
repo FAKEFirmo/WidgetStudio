@@ -332,12 +332,18 @@ WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record
     instance.contentScale = std::isfinite(record.contentScale)
         ? std::clamp(record.contentScale, 0.25f, 4.0f) : 1.0f;
     instance.appearance = record.appearance;
+    if (instance.appearance.surface == SurfaceMode::Frosted && !instance.appearance.glassEnabled) {
+        instance.appearance.surface = SurfaceMode::Solid;
+    }
     instance.appearance.opacity = std::isfinite(instance.appearance.opacity)
         ? std::clamp(instance.appearance.opacity, 0.0f, 1.0f) : 0.63f;
     instance.appearance.blurRadius = std::isfinite(instance.appearance.blurRadius)
         ? std::clamp(instance.appearance.blurRadius, 0.0f, 128.0f) : 18.0f;
     instance.appearance.cornerRadius = std::isfinite(instance.appearance.cornerRadius)
-        ? std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f) : 23.0f;
+        ? std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f) : 24.0f;
+    instance.appearance.innerPadding = std::isfinite(instance.appearance.innerPadding)
+        ? std::clamp(instance.appearance.innerPadding, 0.0f, 64.0f) : 20.0f;
+    instance.appearance.glassEnabled = instance.appearance.surface == SurfaceMode::Frosted;
     instance.preservedWidgetState = record.widgetState;
     instance.content = std::move(content);
     widgets_.push_back(std::move(instance));

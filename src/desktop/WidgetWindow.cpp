@@ -91,16 +91,15 @@ bool WidgetWindow::UpdatePlacement(const MonitorDescriptor& monitor) {
     windowBounds_ = placement.windowDips;
     widgetBoundsInWindow_ = placement.widgetInWindowDips;
     const float pixelsToDips = 96.0f / static_cast<float>(dpi_);
+    const WallpaperSamplingGeometry sampling =
+        WidgetWindowPlacementCalculator::WallpaperSampling(monitor);
     wallpaperBounds_ = {
         static_cast<float>(placement.screenX - monitor.monitorPixelX) * pixelsToDips,
         static_cast<float>(placement.screenY - monitor.monitorPixelY) * pixelsToDips,
         static_cast<float>(placement.pixelWidth) * pixelsToDips,
         static_cast<float>(placement.pixelHeight) * pixelsToDips,
     };
-    wallpaperDesktopSize_ = {
-        static_cast<float>(std::max(1, monitor.monitorPixelWidth)) * pixelsToDips,
-        static_cast<float>(std::max(1, monitor.monitorPixelHeight)) * pixelsToDips,
-    };
+    wallpaperDesktopSize_ = sampling.fullMonitorDips;
     const DesktopTargetBounds target{
         placement.screenX,
         placement.screenY,

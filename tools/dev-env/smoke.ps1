@@ -232,7 +232,7 @@ try {
     $layoutChanged = 209 -bor (1 -shl 16)
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]$layoutChanged, $layoutMode)
     [void][WidgetStudioSmokeNative]::SendMessage($appearanceMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
-    [void][WidgetStudioSmokeNative]::SendMessage($glass, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage($glass, 0x014E, [IntPtr]2, [IntPtr]::Zero)
     Start-Sleep -Milliseconds 100
     [void][WidgetStudioSmokeNative]::SendMessage(
         $applyUniversalButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
@@ -240,7 +240,8 @@ try {
     $configured = @($scene.widgets | Where-Object { $_.instanceId -eq $configuredId })[0]
     if (-not $configured -or $configured.layoutMode -ne 'free' -or
         [double]$configured.free.width -le 100.0 -or [double]$configured.free.height -le 100.0 -or
-        $configured.appearance.mode -ne 'light' -or $configured.appearance.glass -ne $false) {
+        $configured.appearance.mode -ne 'light' -or $configured.appearance.surface -ne 'solid' -or
+        $configured.appearance.glass -ne $false) {
         throw 'Widget Studio did not persist the converted free layout and appearance toggles.'
     }
 
@@ -259,7 +260,8 @@ try {
     $duplicate = @($scene.widgets)[-1]
     if ($duplicate.instanceId -eq $configuredId -or $duplicate.typeId -ne 'clock' -or
         $duplicate.layoutMode -ne 'free' -or $duplicate.state.use24Hour -ne 'false' -or
-        $duplicate.appearance.mode -ne 'light' -or $duplicate.appearance.glass -ne $false) {
+        $duplicate.appearance.mode -ne 'light' -or $duplicate.appearance.surface -ne 'solid' -or
+        $duplicate.appearance.glass -ne $false) {
         throw 'Widget Studio Duplicate did not preserve common and widget-specific state.'
     }
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]207, [IntPtr]::Zero)

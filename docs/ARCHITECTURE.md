@@ -121,7 +121,7 @@ New imports persist as validated `asset://filename` references. The composition 
 
 ## Widget Studio
 
-`WidgetStudioWindow` renders the same `WidgetScene` through the same `Renderer`, `GridLayout`, and authored widget content used by the desktop. A preview-only render transform fits the active monitor scene without maintaining duplicate layout state. Universal instance fields and declarative `IWidget::Settings()` definitions drive native controls for numbers, booleans, choices, text, and local files. A topology-backed monitor selector moves selected instances generically and switches the preview to the destination work area.
+`WidgetStudioWindow` renders the same `WidgetScene` through the same `Renderer`, `GridLayout`, and authored widget content used by the desktop. Its preview preserves the selected monitor work-area aspect ratio, and wallpaper cropping stays anchored to the full monitor so a taskbar offset cannot shift the preview relative to the desktop card. A preview-only render transform fits the active monitor scene without maintaining duplicate layout state. Universal instance fields and declarative `IWidget::Settings()` definitions drive native controls for numbers, booleans, choices, text, and local files. Universal appearance includes theme, frosted/transparent/solid surface mode, opacity, blur, radius, padding, border, and shadow. Changes apply to the live scene and are persisted through the normal scene-change callback. A topology-backed monitor selector moves selected instances generically and switches the preview to the destination work area.
 
 ## Desktop and monitor boundary
 
