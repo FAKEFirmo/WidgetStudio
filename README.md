@@ -26,6 +26,8 @@ After configuring those normal native tools, run the complete command-line valid
 
 The script imports the MSVC x64 environment only for its own process, uses Ninja, runs logic tests, builds and packages Release, then performs GUI smoke and idle-resource checks. See [tools/dev-env/README.md](tools/dev-env/README.md) for CLion profile paths and individual commands.
 
+GitHub Actions repeats clean Debug and Release builds and CTest runs on a GitHub-hosted Windows runner. It packages the Release tree as `WidgetStudio-portable.zip`; all build trees remain under the runner's temporary directory rather than the source checkout. Trusted signing is deliberately disabled until the public repository has been approved and configured by SignPath Foundation. See [docs/PUBLISHING.md](docs/PUBLISHING.md).
+
 ## Run and controls
 
 Run `WidgetStudio.exe`. Widget windows attempt Explorer desktop attachment automatically. WorkerW is undocumented Explorer behavior, so attachment failure falls back safely to non-activating bottom-z-order windows. To force that fallback for diagnostics:
@@ -66,3 +68,11 @@ Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%
 - [docs/MILESTONES.md](docs/MILESTONES.md) records implementation and validation status.
 - [docs/ACCEPTANCE.md](docs/ACCEPTANCE.md) separates implemented behavior from remaining final runtime gates.
 - [docs/RELEASE.md](docs/RELEASE.md) is the build, operation, data, removal, API, and platform guide.
+
+## Code signing policy
+
+Free code signing provided by [SignPath.io](https://signpath.io/), certificate by [SignPath Foundation](https://signpath.org/). The CI workflow can submit only the exact portable archive built and tested on GitHub-hosted Windows runners, and every Release signing request requires approval. Team roles, privacy commitments, and release verification are documented in [docs/CODE_SIGNING_POLICY.md](docs/CODE_SIGNING_POLICY.md).
+
+## License and contributions
+
+WidgetStudio is available under the [MIT License](LICENSE). Contributions are welcome under [CONTRIBUTING.md](CONTRIBUTING.md); security reports should follow [SECURITY.md](SECURITY.md).

@@ -34,6 +34,7 @@ if (-not (Test-Path -LiteralPath $executable)) {
 foreach ($required in @(
         'portable.mode',
         'README.txt',
+        'LICENSE',
         'assets',
         'data\config',
         'data\images',

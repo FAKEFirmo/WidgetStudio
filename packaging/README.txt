@@ -14,6 +14,10 @@ WidgetStudio performs no telemetry, update checks, or network requests.
 It installs no service, driver, updater, registry configuration, or external
 widget host.
 
+WidgetStudio is open-source software distributed under the MIT License. See
+LICENSE in this folder. Official signed releases use Authenticode signing
+provided by SignPath.io with a certificate issued by SignPath Foundation.
+
 Each widget uses its own lightweight native window. WidgetStudio attempts
 Explorer WorkerW desktop attachment and falls back safely if that undocumented
 host is unavailable. Set WIDGETSTUDIO_DESKTOP_BACKEND=windowed only to force

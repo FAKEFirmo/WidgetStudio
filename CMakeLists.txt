@@ -78,7 +78,7 @@ target_link_libraries(WidgetStudio PRIVATE
 )
 
 install(TARGETS WidgetStudio RUNTIME DESTINATION .)
-install(FILES packaging/README.txt packaging/portable.mode DESTINATION .)
+install(FILES packaging/README.txt packaging/portable.mode LICENSE DESTINATION .)
 install(CODE [[
     file(MAKE_DIRECTORY
         "${CMAKE_INSTALL_PREFIX}/assets"

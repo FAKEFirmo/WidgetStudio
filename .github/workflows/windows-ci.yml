@@ -1,0 +1,144 @@
+name: Windows CI and portable release
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "v*"
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      sign_release:
+        description: Request SignPath signing (run this workflow from a v* tag)
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  build-test-package:
+    name: Build, test, and package
+    runs-on: windows-latest
+    outputs:
+      unsigned-artifact-id: ${{ steps.upload-unsigned.outputs.artifact-id }}
+      unsigned-artifact-digest: ${{ steps.upload-unsigned.outputs.artifact-digest }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Build Debug with MSVC and Ninja
+        shell: pwsh
+        run: .\tools\dev-env\build.ps1 -Configuration Debug -BuildRoot (Join-Path $env:RUNNER_TEMP 'WidgetStudioBuild')
+
+      - name: Test Debug with CTest
+        shell: pwsh
+        run: .\tools\dev-env\test.ps1 -Configuration Debug -BuildRoot (Join-Path $env:RUNNER_TEMP 'WidgetStudioBuild')
+
+      - name: Build Release with MSVC and Ninja
+        shell: pwsh
+        run: .\tools\dev-env\build.ps1 -Configuration Release -BuildRoot (Join-Path $env:RUNNER_TEMP 'WidgetStudioBuild')
+
+      - name: Test Release with CTest
+        shell: pwsh
+        run: .\tools\dev-env\test.ps1 -Configuration Release -BuildRoot (Join-Path $env:RUNNER_TEMP 'WidgetStudioBuild')
+
+      - name: Create and verify portable Release archive
+        shell: pwsh
+        run: |
+          $buildRoot = Join-Path $env:RUNNER_TEMP 'WidgetStudioBuild'
+          $packageRoot = Join-Path $buildRoot 'dist'
+          $archivePath = Join-Path $buildRoot 'artifacts\WidgetStudio-portable.zip'
+          .\tools\package.ps1 -BuildPath (Join-Path $buildRoot 'Release') -OutputPath $packageRoot
+          .\tools\archive-package.ps1 -PackagePath (Join-Path $packageRoot 'WidgetStudio') -OutputPath $archivePath
+          .\tools\verify-package.ps1 -ArchivePath $archivePath
+
+      - name: Confirm the source checkout stayed clean
+        shell: pwsh
+        run: |
+          $changes = @(git status --porcelain)
+          if ($changes.Count -ne 0) {
+            $changes | Write-Host
+            throw 'The build generated or changed files in the source checkout.'
+          }
+
+      - name: Upload unsigned portable archive
+        id: upload-unsigned
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ runner.temp }}\WidgetStudioBuild\artifacts\WidgetStudio-portable.zip
+          archive: false
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Record unsigned candidate identity
+        shell: pwsh
+        run: |
+          "### Portable Release candidate" >> $env:GITHUB_STEP_SUMMARY
+          "- Source commit: ``${{ github.sha }}``" >> $env:GITHUB_STEP_SUMMARY
+          "- Artifact: ``WidgetStudio-portable.zip``" >> $env:GITHUB_STEP_SUMMARY
+          "- GitHub artifact digest: ``${{ steps.upload-unsigned.outputs.artifact-digest }}``" >> $env:GITHUB_STEP_SUMMARY
+
+  sign-release:
+    name: Request trusted Release signature
+    needs: build-test-package
+    if: >-
+      github.event_name == 'workflow_dispatch' &&
+      inputs.sign_release == true &&
+      startsWith(github.ref, 'refs/tags/v') &&
+      vars.SIGNPATH_ENABLED == 'true'
+    runs-on: windows-latest
+
+    steps:
+      - name: Check out verification scripts
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+        with:
+          persist-credentials: false
+
+      - name: Submit exact CI artifact to SignPath
+        id: signpath
+        uses: signpath/github-action-submit-signing-request@c92b958760219087e01f8d67a1669ed57afe2627 # v2.3
+        with:
+          api-token: ${{ secrets.SIGNPATH_API_TOKEN }}
+          organization-id: ${{ vars.SIGNPATH_ORGANIZATION_ID }}
+          project-slug: ${{ vars.SIGNPATH_PROJECT_SLUG }}
+          signing-policy-slug: ${{ vars.SIGNPATH_SIGNING_POLICY_SLUG }}
+          artifact-configuration-slug: ${{ vars.SIGNPATH_ARTIFACT_CONFIGURATION_SLUG }}
+          github-artifact-id: ${{ needs.build-test-package.outputs.unsigned-artifact-id }}
+          wait-for-completion: true
+          output-artifact-directory: ${{ runner.temp }}\WidgetStudioSigned
+          skip-decompress: true
+
+      - name: Verify signed portable archive
+        id: signed-archive
+        shell: pwsh
+        run: |
+          $matches = @(Get-ChildItem -LiteralPath (Join-Path $env:RUNNER_TEMP 'WidgetStudioSigned') -Filter 'WidgetStudio-portable.zip' -File -Recurse)
+          if ($matches.Count -ne 1) {
+            throw "Expected one signed WidgetStudio-portable.zip, found $($matches.Count)."
+          }
+          .\tools\verify-package.ps1 -ArchivePath $matches[0].FullName -RequireValidSignature
+          "path=$($matches[0].FullName)" >> $env:GITHUB_OUTPUT
+          "sha256=$((Get-FileHash -LiteralPath $matches[0].FullName -Algorithm SHA256).Hash)" >> $env:GITHUB_OUTPUT
+
+      - name: Upload exact signed portable archive
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          path: ${{ steps.signed-archive.outputs.path }}
+          archive: false
+          if-no-files-found: error
+          retention-days: 90
+
+      - name: Record signed candidate identity
+        shell: pwsh
+        run: |
+          "### Signed portable Release candidate" >> $env:GITHUB_STEP_SUMMARY
+          "- Source commit: ``${{ github.sha }}``" >> $env:GITHUB_STEP_SUMMARY
+          "- Signed ZIP SHA-256: ``${{ steps.signed-archive.outputs.sha256 }}``" >> $env:GITHUB_STEP_SUMMARY
+          "- SignPath request: ${{ steps.signpath.outputs.signing-request-web-url }}" >> $env:GITHUB_STEP_SUMMARY

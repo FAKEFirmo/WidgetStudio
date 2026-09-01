@@ -38,6 +38,8 @@ The complete clean build, test, package, smoke, and idle-resource path is:
 
 Generated files remain under `C:\WidgetStudioBuild`. The current portable release-candidate path is `C:\WidgetStudioBuild\dist\WidgetStudio`. Runtime checks use a separate `runtime-validation` copy so the distribution stays clean. `validate.ps1` records CTest results for both configurations, then intentionally stops before GUI checks if either test is rejected by security policy; it does not attempt a bypass.
 
+GitHub-hosted validation creates `WidgetStudio-portable.zip` from that directory with the top-level `WidgetStudio` folder preserved. The optional signing job submits that exact GitHub artifact to SignPath; maintainers publish the returned ZIP without rebuilding or repackaging it. See [PUBLISHING.md](PUBLISHING.md).
+
 ## Debugging
 
 Run `WidgetStudio.exe` from the Debug build tree in CLion. The Debug configuration registers a diagnostic widget; Release does not. Set `WIDGETSTUDIO_DESKTOP_BACKEND=windowed` only for a process-local diagnostic run when WorkerW behavior must be isolated. This environment variable is not installed or persisted by WidgetStudio.
@@ -49,6 +51,7 @@ WidgetStudio\
 |-- WidgetStudio.exe
 |-- portable.mode
 |-- README.txt
+|-- LICENSE
 |-- assets\
 `-- data\
     |-- config\
