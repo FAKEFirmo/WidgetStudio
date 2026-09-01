@@ -115,6 +115,73 @@ void TestRegistryAndPlacement() {
         "hit testing should isolate the second monitor scene");
 }
 
+void TestGridGeometryAndFullPlacement() {
+    ws::GridLayout grid;
+    const ws::GridMetrics metrics = grid.Calculate({1200.0f, 700.0f});
+    Require(metrics.columns == 12 && metrics.rows == 7 && metrics.cellSize > 0.0f,
+        "the baseline grid should remain 12 by 7 with a positive square cell size");
+    const ws::RectF first = grid.RectFor({0, 0, 1, 1}, metrics);
+    const ws::RectF adjacent = grid.RectFor({1, 0, 1, 1}, metrics);
+    const ws::RectF spanned = grid.RectFor({0, 0, 2, 1}, metrics);
+    Require(first.width == first.height && adjacent.x - first.Right() == metrics.gap,
+        "grid cells should be square and separated by the shared gap");
+    Require(spanned.Right() == adjacent.Right(),
+        "spanned widget edges should resolve from the same grid metrics without drift");
+
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    std::set<std::pair<int, int>> placements;
+    for (int index = 0; index < 12; ++index) {
+        const ws::WidgetInstance* widget = scene.CreateWidget("test", L"DISPLAY-A");
+        Require(widget && placements.emplace(widget->grid.column, widget->grid.row).second,
+            "first-free placement should avoid overlap while the grid has room");
+    }
+    const ws::WidgetInstance* overflow = scene.CreateWidget("test", L"DISPLAY-A");
+    Require(overflow && overflow->grid.column == 0 && overflow->grid.row == 0,
+        "a full grid should use the documented deterministic bounded fallback");
+}
+
+void TestFreeDuplicationAndDefensiveRestore() {
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    ws::WidgetPersistenceRecord source{};
+    source.instanceId = "free-source";
+    source.typeId = "test";
+    source.monitorId = L"DISPLAY-A";
+    source.layoutMode = ws::LayoutMode::Free;
+    source.grid = {0, 0, 3, 2};
+    source.free = {10.0f, 20.0f, 100.0f, 80.0f};
+    source.locked = true;
+    source.widgetState = {{L"label", L"copied"}};
+    ws::WidgetInstance* original = scene.RestoreWidget(source);
+    Require(original, "free-layout duplication fixture should restore");
+    const std::string originalId = original->instanceId;
+    const ws::WidgetInstance* duplicate = scene.DuplicateWidget(
+        originalId, {0.0f, 0.0f, 300.0f, 220.0f});
+    Require(duplicate && duplicate->instanceId != source.instanceId,
+        "free-layout duplication should generate a new instance ID");
+    Require(duplicate->free.x == 134.0f && duplicate->free.y == 20.0f,
+        "free-layout duplication should use a nearby bounded non-overlapping position");
+    Require(duplicate->locked && scene.PrimarySelection() == duplicate->instanceId,
+        "duplication should copy lock state and select only the new instance as primary");
+    const ws::WidgetSceneSnapshot snapshot = scene.Snapshot();
+    Require(snapshot.back().widgetState.at(L"label") == L"copied",
+        "duplication should copy widget-specific persistent state");
+
+    ws::WidgetPersistenceRecord malformed = source;
+    malformed.instanceId = "non-finite-restore";
+    malformed.free = {std::numeric_limits<float>::quiet_NaN(),
+        std::numeric_limits<float>::infinity(), -1.0f,
+        std::numeric_limits<float>::quiet_NaN()};
+    malformed.contentScale = std::numeric_limits<float>::quiet_NaN();
+    malformed.appearance.opacity = std::numeric_limits<float>::quiet_NaN();
+    const ws::WidgetInstance* sanitized = scene.RestoreWidget(malformed);
+    Require(sanitized && std::isfinite(sanitized->free.x) && std::isfinite(sanitized->free.y) &&
+        sanitized->free.width > 0.0f && sanitized->free.height > 0.0f &&
+        sanitized->contentScale == 1.0f && std::isfinite(sanitized->appearance.opacity),
+        "direct restore should sanitize malformed universal values defensively");
+}
+
 void TestMonitorMigration() {
     ws::WidgetRegistry registry = CreateRegistry();
     ws::WidgetScene scene(registry);
@@ -181,6 +248,14 @@ void TestSelectionAndLocking() {
     const ws::WidgetInstance* locked = scene.Find(firstId);
     Require(locked && locked->selected && locked->locked,
         "locking should not clear selection or remove the widget");
+
+    scene.Select(secondId, true);
+    Require(scene.RemoveWidget(secondId), "removing a selected primary should succeed");
+    Require(scene.SelectionCount() == 1 && scene.PrimarySelection() == firstId,
+        "removing the primary should promote a surviving selected instance");
+    Require(scene.RemoveSelectedWidgets() == 1 && scene.SelectionCount() == 0 &&
+        !scene.PrimarySelection(),
+        "deleting the final selection should leave an empty but valid selection state");
 }
 
 void TestWidgetWindowPlacement() {
@@ -255,6 +330,13 @@ void TestSerialization() {
         "malformed JSON should be rejected");
     Require(!ws::SceneJsonCodec::Decode("{\"schemaVersion\":99,\"widgets\":[]}", error),
         "unknown schema versions should be rejected safely");
+    Require(!ws::SceneJsonCodec::Decode(
+        "{\"schemaVersion\":1,\"widgets\":["
+        "{\"instanceId\":\"same\",\"typeId\":\"test\",\"monitorId\":\"primary\","
+        "\"grid\":{\"column\":0,\"row\":0,\"columnSpan\":1,\"rowSpan\":1}},"
+        "{\"instanceId\":\"same\",\"typeId\":\"test\",\"monitorId\":\"primary\","
+        "\"grid\":{\"column\":1,\"row\":0,\"columnSpan\":1,\"rowSpan\":1}}]}", error),
+        "duplicate persisted instance IDs should be rejected before scene restore");
     std::string invalidUtf8 =
         "{\"schemaVersion\":1,\"widgets\":[{\"instanceId\":\"widget-";
     invalidUtf8.push_back(static_cast<char>(0xFF));
@@ -486,6 +568,8 @@ void TestFreeLayoutAndAlignment() {
 int main() {
     try {
         TestRegistryAndPlacement();
+        TestGridGeometryAndFullPlacement();
+        TestFreeDuplicationAndDefensiveRestore();
         TestMonitorMigration();
         TestSelectionAndLocking();
         TestWidgetWindowPlacement();

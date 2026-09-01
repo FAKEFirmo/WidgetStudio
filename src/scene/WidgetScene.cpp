@@ -27,6 +27,11 @@ bool Overlaps(const GridPlacement& left, const GridPlacement& right) noexcept {
         left.row + left.rowSpan > right.row;
 }
 
+bool Overlaps(const FreePlacement& left, const FreePlacement& right) noexcept {
+    return left.x < right.x + right.width && left.x + left.width > right.x &&
+        left.y < right.y + right.height && left.y + left.height > right.y;
+}
+
 WidgetState EffectiveWidgetState(const WidgetInstance& widget) {
     WidgetState state = widget.preservedWidgetState;
     if (!widget.content) return state;
@@ -158,7 +163,70 @@ std::size_t WidgetScene::RemoveSelectedWidgets() noexcept {
     return oldSize - widgets_.size();
 }
 
-WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId) {
+FreePlacement WidgetScene::FindDuplicateFreePlacement(
+    const WidgetInstance& source, RectF bounds) const noexcept {
+    constexpr float offset = 24.0f;
+    FreePlacement candidate = source.free;
+    if (!std::isfinite(candidate.x) || !std::isfinite(candidate.y) ||
+        !std::isfinite(candidate.width) || !std::isfinite(candidate.height)) {
+        candidate = FreePlacement{0.0f, 0.0f, 320.0f, 180.0f};
+    }
+    candidate.width = std::max(1.0f, candidate.width);
+    candidate.height = std::max(1.0f, candidate.height);
+
+    const bool bounded = std::isfinite(bounds.x) && std::isfinite(bounds.y) &&
+        std::isfinite(bounds.width) && std::isfinite(bounds.height) &&
+        bounds.width > 0.0f && bounds.height > 0.0f;
+    if (!bounded) {
+        candidate.x += offset;
+        candidate.y += offset;
+        return candidate;
+    }
+
+    candidate.width = std::min(candidate.width, bounds.width);
+    candidate.height = std::min(candidate.height, bounds.height);
+    const float maximumX = bounds.Right() - candidate.width;
+    const float maximumY = bounds.Bottom() - candidate.height;
+    const auto isFree = [this, &source](const FreePlacement& placement) {
+        return std::none_of(widgets_.begin(), widgets_.end(), [&](const WidgetInstance& widget) {
+            return widget.monitorId == source.monitorId && widget.layoutMode == LayoutMode::Free &&
+                Overlaps(placement, widget.free);
+        });
+    };
+
+    const PointF nearby[] = {
+        {source.free.x + candidate.width + offset, source.free.y},
+        {source.free.x, source.free.y + candidate.height + offset},
+        {source.free.x - candidate.width - offset, source.free.y},
+        {source.free.x, source.free.y - candidate.height - offset},
+    };
+    for (const PointF point : nearby) {
+        candidate.x = std::clamp(point.x, bounds.x, maximumX);
+        candidate.y = std::clamp(point.y, bounds.y, maximumY);
+        if (isFree(candidate)) return candidate;
+    }
+
+    // Search a deterministic DIP lattice when the nearby offset is occupied.
+    // Include the far edges explicitly so every returned rectangle is valid.
+    for (float y = bounds.y; y <= maximumY; y += offset) {
+        for (float x = bounds.x; x <= maximumX; x += offset) {
+            candidate.x = x;
+            candidate.y = y;
+            if (isFree(candidate)) return candidate;
+        }
+    }
+    candidate.x = maximumX;
+    candidate.y = maximumY;
+    if (isFree(candidate)) return candidate;
+
+    // A completely full free-layout surface necessarily overlaps; keep the
+    // fallback bounded and deterministic rather than reproducing the source.
+    candidate.x = std::clamp(source.free.x + offset, bounds.x, maximumX);
+    candidate.y = std::clamp(source.free.y + offset, bounds.y, maximumY);
+    return candidate;
+}
+
+WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId, RectF bounds) {
     const WidgetInstance* source = Find(instanceId);
     if (!source) return nullptr;
     const WidgetDescriptor* descriptor = registry_.Find(source->typeId);
@@ -169,7 +237,7 @@ WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId) {
     record.layoutMode = source->layoutMode;
     record.grid = FindInitialPlacement(
         GridSize{source->grid.columnSpan, source->grid.rowSpan}, source->monitorId);
-    record.free = source->free;
+    record.free = FindDuplicateFreePlacement(*source, bounds);
     record.locked = source->locked;
     record.contentScale = source->contentScale;
     record.appearance = source->appearance;
@@ -256,14 +324,20 @@ WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record
     instance.grid.column = std::clamp(instance.grid.column, 0, gridColumns_ - instance.grid.columnSpan);
     instance.grid.row = std::clamp(instance.grid.row, 0, gridRows_ - instance.grid.rowSpan);
     instance.free = record.free;
-    instance.free.width = std::max(1.0f, instance.free.width);
-    instance.free.height = std::max(1.0f, instance.free.height);
+    if (!std::isfinite(instance.free.x)) instance.free.x = 0.0f;
+    if (!std::isfinite(instance.free.y)) instance.free.y = 0.0f;
+    if (!std::isfinite(instance.free.width) || instance.free.width <= 0.0f) instance.free.width = 320.0f;
+    if (!std::isfinite(instance.free.height) || instance.free.height <= 0.0f) instance.free.height = 180.0f;
     instance.locked = record.locked;
-    instance.contentScale = std::clamp(record.contentScale, 0.25f, 4.0f);
+    instance.contentScale = std::isfinite(record.contentScale)
+        ? std::clamp(record.contentScale, 0.25f, 4.0f) : 1.0f;
     instance.appearance = record.appearance;
-    instance.appearance.opacity = std::clamp(instance.appearance.opacity, 0.0f, 1.0f);
-    instance.appearance.blurRadius = std::clamp(instance.appearance.blurRadius, 0.0f, 128.0f);
-    instance.appearance.cornerRadius = std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f);
+    instance.appearance.opacity = std::isfinite(instance.appearance.opacity)
+        ? std::clamp(instance.appearance.opacity, 0.0f, 1.0f) : 0.63f;
+    instance.appearance.blurRadius = std::isfinite(instance.appearance.blurRadius)
+        ? std::clamp(instance.appearance.blurRadius, 0.0f, 128.0f) : 18.0f;
+    instance.appearance.cornerRadius = std::isfinite(instance.appearance.cornerRadius)
+        ? std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f) : 23.0f;
     instance.preservedWidgetState = record.widgetState;
     instance.content = std::move(content);
     widgets_.push_back(std::move(instance));

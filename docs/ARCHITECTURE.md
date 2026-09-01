@@ -46,6 +46,7 @@ register -> discover -> create -> place -> interact -> configure
 - Register: application startup explicitly adds compiled-in descriptors to `WidgetRegistry`.
 - Discover: the Widget Library enumerates descriptors; adding a type requires no library button changes.
 - Create: `WidgetScene::CreateWidget(typeId)` resolves the descriptor, calls its factory, generates an instance ID, and initializes universal defaults.
+- First run: the application composition root supplies the initial built-in type ID. `DesktopHost` applies that policy generically and contains no concrete widget type IDs.
 - Place: the scene scans the monitor grid left-to-right and then top-to-bottom for the first non-overlapping default footprint. A full grid falls back to a valid clamped placement.
 - Interact: selection, dragging, duplication, locking, and deletion operate only on instance data.
 - Configure: universal settings live on `WidgetInstance`; widget-specific settings are described by `IWidget::Settings()`.
@@ -75,6 +76,8 @@ In Editing mode, click establishes the primary selection, Shift-click toggles mu
 ## Free layout and alignment
 
 `OuterLayout` resolves grid or free instance rectangles and moves free instances without mixing physical pixels and DIPs. `Alignment` implements primary-relative left/center/right/top/middle/bottom alignment, width/height/both matching, and equal horizontal/vertical distribution. Locked items are not modified. Scene APIs expose mode conversion and selected-item alignment without widget-type knowledge.
+
+Free-layout duplication first tries adjacent positions separated by 24 DIPs, then scans a deterministic 24-DIP lattice for a non-overlapping in-bounds position. If the surface is completely full, the fallback remains bounded and deterministic. Grid duplication continues to use the shared first-free grid scan.
 
 ## Persistence boundary
 
@@ -127,6 +130,10 @@ New imports persist as validated `asset://filename` references. The composition 
 `DesktopHost` is a hidden controller HWND for tray callbacks, global commands, event-driven timers, and subsystem lifetime. It synchronizes exactly one lightweight `WidgetWindow` with every live scene instance. Each widget window computes its own physical position from monitor-local DIPs and effective DPI, renders only its instance, and performs only that widget's action hit testing. Passive regions return `HTTRANSPARENT`; Edit Mode temporarily makes the surface selectable and draggable. `WidgetWindowPlacementCalculator` keeps DIP-to-pixel conversion testable outside Win32 interaction code.
 
 `MonitorTopology` enumerates stable display device IDs, effective DPI, full-monitor pixels, and work-area pixels/DIPs. Widget placement is relative to the work area so it avoids taskbars, while wallpaper sampling remains anchored to the full monitor even with a top or left taskbar. The last interacted widget window becomes the Widget Studio and Widget Library target. Display changes reposition all widget HWNDs; every instance is reconciled with the current grid and work area, while instances whose saved display disappeared first migrate to the primary monitor. Any corrected geometry is saved. Per-widget `WM_DPICHANGED` notifications coalesce into one topology refresh. After Explorer broadcasts `TaskbarCreated`, surviving windows reattach and destroyed child windows are recreated from the scene.
+
+Coordinate spaces are explicit at the native boundary: `MonitorTopology` retains work-area and full-monitor rectangles in physical screen pixels and exposes a monitor-local work area in DIPs. Scene grid/free placement and drag offsets are always monitor-local DIPs. `WidgetWindowPlacementCalculator` is the only scene-to-screen placement conversion and adds the work-area physical origin after scaling DIPs by the monitor DPI. Mouse messages begin as client pixels, are converted with the widget HWND DPI, then add the monitor-local window origin before entering layout/drag code. Direct2D targets use the HWND DPI and therefore consume DIPs. Wallpaper sampling separately converts physical offsets from the full-monitor origin back to DIPs; it never reuses work-area-relative scene coordinates as screen pixels.
+
+`D2DERR_RECREATE_TARGET` discards every HWND-specific target and bitmap cache. The next invalidated paint recreates them from process-shared factories; resize never retains a rejected target. Rendering is driven only by paint invalidation, system/media events, and one-shot content timers.
 
 ## Delivery boundary
 

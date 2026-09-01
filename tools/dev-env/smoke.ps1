@@ -285,8 +285,8 @@ try {
         if (-not $secondProcess.WaitForExit(5000)) {
             throw 'A second WidgetStudio launch remained running instead of honoring the single-instance guard.'
         }
-        if ($secondProcess.ExitCode -ne 0) {
-            throw "The guarded second WidgetStudio launch exited with code $($secondProcess.ExitCode)."
+        if ($secondProcess.ExitCode -ne 2) {
+            throw "The guarded second WidgetStudio launch should exit with diagnostic code 2; observed $($secondProcess.ExitCode)."
         }
         $process.Refresh()
         if ($process.HasExited) {

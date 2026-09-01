@@ -52,6 +52,7 @@ private:
     HINSTANCE instance_{};
     HWND hwnd_{};
     UINT dpi_{96};
+    bool renderFailureLogged_{false};
     std::string instanceId_;
     std::wstring monitorId_;
     GridMetrics metrics_{};

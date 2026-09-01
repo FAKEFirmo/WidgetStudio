@@ -55,6 +55,7 @@ void Renderer::SetSharedResources(std::shared_ptr<RenderingResources> resources)
 }
 
 HRESULT Renderer::Initialize(HWND hwnd) {
+    if (!hwnd || !IsWindow(hwnd)) return E_INVALIDARG;
     hwnd_ = hwnd;
     if (!wallpaperCache_) wallpaperCache_ = std::make_shared<WallpaperCache>();
     if (!resources_) resources_ = std::make_shared<RenderingResources>();
@@ -84,8 +85,9 @@ void Renderer::DiscardDeviceResources() noexcept {
 HRESULT Renderer::CreateDeviceResources() {
     if (renderTarget_) return S_OK;
 
+    if (!hwnd_ || !IsWindow(hwnd_)) return HRESULT_FROM_WIN32(ERROR_INVALID_WINDOW_HANDLE);
     RECT rc{};
-    GetClientRect(hwnd_, &rc);
+    if (!GetClientRect(hwnd_, &rc)) return HRESULT_FROM_WIN32(GetLastError());
     const D2D1_SIZE_U size = D2D1::SizeU(
         static_cast<UINT32>(std::max<LONG>(1, rc.right - rc.left)),
         static_cast<UINT32>(std::max<LONG>(1, rc.bottom - rc.top)));
@@ -105,7 +107,15 @@ HRESULT Renderer::Resize(UINT width, UINT height) {
     if (!renderTarget_) return S_OK;
     glassCache_.clear();
     wallpaperBitmap_.Reset();
-    return renderTarget_->Resize(D2D1::SizeU(std::max(1u, width), std::max(1u, height)));
+    const HRESULT result = renderTarget_->Resize(
+        D2D1::SizeU(std::max(1u, width), std::max(1u, height)));
+    if (result == D2DERR_RECREATE_TARGET) {
+        // The next paint recreates the target against the HWND's current
+        // client size. Keeping a rejected target here causes repeated errors.
+        DiscardDeviceResources();
+        return S_OK;
+    }
+    return result;
 }
 
 void Renderer::SetDpi(float dpi) noexcept {

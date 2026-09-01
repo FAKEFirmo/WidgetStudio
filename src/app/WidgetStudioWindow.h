@@ -32,6 +32,7 @@ public:
         std::function<void()> sceneChanged,
         std::function<void()> selectionChanged, std::function<void()> openLibrary);
     void Close() noexcept;
+    void CancelInteraction();
     void Refresh();
     void InvalidatePreview(bool reloadWallpaper = false);
     void UpdateLayoutContext(GridMetrics layoutMetrics, RectF layoutBounds, std::wstring monitorId);

@@ -59,6 +59,8 @@ Imported photos are persisted as `asset://` references relative to the active da
 
 When `portable.mode` exists beside the executable—as it does in the packaged release—state stays under `data\config`, `data\images`, and `data\cache` beside the executable. Existing `portable-data\scene.json` and `portable-data\assets` files are copied into the new locations once for compatibility. WidgetStudio installs no service, driver, updater, scheduled task, registry setting, machine-wide environment variable, or external widget host.
 
+During the current startup-diagnostic phase, every launch writes a deterministic UTF-8 trace to `data\logs\startup.log` in portable mode, or `%LOCALAPPDATA%\WidgetStudio\logs\startup.log` in normal mode. The trace records the Windows build, single-instance decision, DPI/COM initialization, registry, host window, tray, monitors, widget windows, and message-loop entry or exact failure code. It contains no telemetry and is never transmitted.
+
 Launch-at-login is disabled by default. If enabled, WidgetStudio creates only `%APPDATA%\Microsoft\Windows\Start Menu\Programs\Startup\WidgetStudio.lnk`; uncheck the same tray item to remove it. To uninstall cleanly, disable that option if used, exit WidgetStudio, and delete its folder.
 
 ## Project documentation

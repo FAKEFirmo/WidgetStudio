@@ -26,11 +26,13 @@
 namespace ws {
 
 class MediaSessionService;
+class StartupDiagnostics;
 class WidgetWindow;
 
 class DesktopHost {
 public:
-    DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession);
+    DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession,
+        StartupDiagnostics& diagnostics, std::string initialWidgetTypeId);
     ~DesktopHost();
 
     bool Create(HINSTANCE instance, int showCommand);
@@ -65,7 +67,7 @@ private:
     void OpenWidgetLibrary();
     void OpenWidgetStudio();
     void ToggleLaunchAtLogin();
-    void CreateWidget(std::string_view typeId, bool persist = true);
+    bool CreateWidget(std::string_view typeId, bool persist = true);
     void DeleteSelectedWidgets();
     void DuplicatePrimaryWidget();
     void TogglePrimaryWidgetLock();
@@ -94,6 +96,7 @@ private:
     [[nodiscard]] const std::shared_ptr<RenderingResources>& Rendering() const noexcept {
         return renderingResources_;
     }
+    [[nodiscard]] StartupDiagnostics& Diagnostics() const noexcept { return diagnostics_; }
 
     HINSTANCE instance_{};
     HWND hwnd_{};
@@ -101,6 +104,8 @@ private:
     bool editMode_{false};
     bool hotkeyRegistered_{false};
     bool monitorRefreshPending_{false};
+    bool initializationComplete_{false};
+    bool normalExitRequested_{false};
     std::wstring activeMonitorId_;
     GridMetrics activeMetrics_{};
     RectF activeBounds_{};
@@ -108,6 +113,8 @@ private:
     GridLayout grid_{};
     GridMetrics metrics_{};
     const WidgetRegistry& registry_;
+    std::string initialWidgetTypeId_;
+    StartupDiagnostics& diagnostics_;
     std::shared_ptr<RenderingResources> renderingResources_;
     std::shared_ptr<WallpaperCache> wallpaperCache_;
     std::shared_ptr<MediaSessionService> mediaSession_;
@@ -116,6 +123,7 @@ private:
     WidgetSceneSnapshot unrestoredRecords_;
     bool persistenceErrorShown_{false};
     bool widgetWindowErrorShown_{false};
+    bool libraryWindowErrorShown_{false};
     TrayController tray_{};
     std::vector<std::unique_ptr<WidgetWindow>> widgetWindows_;
     MonitorTopology monitorTopology_{};

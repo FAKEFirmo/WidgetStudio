@@ -6,6 +6,11 @@ This release includes portable.mode, so configuration, imported photos, and
 cache data are stored under data beside the executable. Delete the whole
 release folder to remove the application and its portable user data.
 
+Temporary startup diagnostics are written as UTF-8 text to
+data\logs\startup.log. If startup stops before the tray icon appears, inspect
+that file and the process exit code. A second launch exits with code 2 and
+records that the single-instance guard is already held.
+
 Launch at login is disabled by default. If enabled from the tray menu, the app
 creates one removable WidgetStudio.lnk in the current user's Startup folder.
 Turn the option off before deleting this folder for a residue-free removal.

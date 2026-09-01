@@ -1,5 +1,6 @@
 #include "desktop/DesktopHost.h"
 
+#include "app/StartupDiagnostics.h"
 #include "desktop/WidgetWindow.h"
 #include "layout/OuterLayout.h"
 #include "rendering/WidgetVisualStyle.h"
@@ -24,8 +25,12 @@ constexpr UINT kMonitorRefreshMessage = WM_APP + 13;
 
 } // namespace
 
-DesktopHost::DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSessionService> mediaSession)
-    : registry_(registry), renderingResources_(std::make_shared<RenderingResources>()),
+DesktopHost::DesktopHost(const WidgetRegistry& registry,
+    std::shared_ptr<MediaSessionService> mediaSession, StartupDiagnostics& diagnostics,
+    std::string initialWidgetTypeId)
+    : registry_(registry), initialWidgetTypeId_(std::move(initialWidgetTypeId)),
+      diagnostics_(diagnostics),
+      renderingResources_(std::make_shared<RenderingResources>()),
       wallpaperCache_(std::make_shared<WallpaperCache>()),
       mediaSession_(std::move(mediaSession)), scene_(registry),
       sceneStore_(SceneStore::DefaultConfigPath()) {
@@ -33,6 +38,7 @@ DesktopHost::DesktopHost(const WidgetRegistry& registry, std::shared_ptr<MediaSe
 }
 
 DesktopHost::~DesktopHost() {
+    diagnostics_.Log(L"desktop host destructor entered");
     if (mediaSession_) mediaSession_->SetChangedCallback({});
     if (hwnd_ && IsWindow(hwnd_)) {
         DestroyWindow(hwnd_);
@@ -49,16 +55,29 @@ bool DesktopHost::RegisterWindowClass(HINSTANCE instance) {
     wc.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     wc.hIconSm = LoadIconW(nullptr, IDI_APPLICATION);
     wc.lpszClassName = kWindowClassName;
-    return RegisterClassExW(&wc) != 0;
+    SetLastError(ERROR_SUCCESS);
+    if (RegisterClassExW(&wc) != 0) {
+        diagnostics_.Log(L"window class registered: WidgetStudioHostWindow");
+        return true;
+    }
+    const DWORD error = GetLastError();
+    if (error == ERROR_CLASS_ALREADY_EXISTS) {
+        diagnostics_.Log(L"window class already registered: WidgetStudioHostWindow");
+        return true;
+    }
+    diagnostics_.LogWin32Failure(L"RegisterClassEx(WidgetStudioHostWindow)", error);
+    return false;
 }
 
 bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
+    diagnostics_.Log(L"desktop host creation entered");
     static_cast<void>(showCommand);
     instance_ = instance;
     if (!RegisterWindowClass(instance_)) {
         return false;
     }
 
+    SetLastError(ERROR_SUCCESS);
     hwnd_ = CreateWindowExW(
         WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kWindowClassName,
@@ -74,9 +93,17 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         this);
 
     if (!hwnd_) {
+        diagnostics_.LogWin32Failure(L"CreateWindowEx(WidgetStudioHostWindow)", GetLastError());
         return false;
     }
+    diagnostics_.Log(L"desktop host created");
+    SetLastError(ERROR_SUCCESS);
     taskbarCreatedMessage_ = RegisterWindowMessageW(L"TaskbarCreated");
+    if (taskbarCreatedMessage_ == 0) {
+        diagnostics_.LogWin32Failure(L"RegisterWindowMessage(TaskbarCreated)", GetLastError());
+    } else {
+        diagnostics_.Log(L"Explorer restart notification registered");
+    }
     if (mediaSession_) {
         const HWND notificationWindow = hwnd_;
         mediaSession_->SetChangedCallback([notificationWindow] {
@@ -84,45 +111,76 @@ bool DesktopHost::Create(HINSTANCE instance, int showCommand) {
         });
     }
 
+    SetLastError(ERROR_SUCCESS);
     if (!tray_.Initialize(hwnd_)) {
+        diagnostics_.LogWin32Failure(L"Shell_NotifyIcon(NIM_ADD)", GetLastError());
         tray_.Shutdown();
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
     }
+    diagnostics_.Log(L"tray controller initialized");
+    SetLastError(ERROR_SUCCESS);
     hotkeyRegistered_ = RegisterHotKey(
         hwnd_, kHotkeyToggleEdit, MOD_CONTROL | MOD_ALT | MOD_NOREPEAT, 'W') != FALSE;
+    if (hotkeyRegistered_) {
+        diagnostics_.Log(L"global edit hotkey registered");
+    } else {
+        diagnostics_.LogWin32Failure(L"RegisterHotKey(optional)", GetLastError());
+        diagnostics_.Log(L"global edit hotkey unavailable; tray commands remain active");
+    }
 
+    SetLastError(ERROR_SUCCESS);
     if (!monitorTopology_.Refresh() || !monitorTopology_.Primary()) {
+        if (GetLastError() == ERROR_SUCCESS) SetLastError(ERROR_NOT_FOUND);
+        diagnostics_.LogWin32Failure(L"monitor topology initialization", GetLastError());
         DestroyWindow(hwnd_);
         hwnd_ = nullptr;
         return false;
     }
+    diagnostics_.Log(L"monitor topology initialized: " +
+        std::to_wstring(monitorTopology_.Monitors().size()) + L" monitor(s)");
     const MonitorDescriptor& primary = *monitorTopology_.Primary();
     activeMonitorId_ = primary.id;
     activeBounds_ = primary.workAreaDips;
     activeMetrics_ = grid_.Calculate({primary.workAreaDips.width, primary.workAreaDips.height});
     metrics_ = activeMetrics_;
     const SceneLoadStatus loadStatus = LoadScene();
+    diagnostics_.Log(L"scene load status=" + std::to_wstring(static_cast<int>(loadStatus)));
     if (loadStatus != SceneLoadStatus::Loaded) {
-        CreateWidget("clock", loadStatus == SceneLoadStatus::Missing);
+        if (!CreateWidget(initialWidgetTypeId_, loadStatus == SceneLoadStatus::Missing)) {
+            diagnostics_.Log(L"initial widget creation failed: type=" +
+                std::wstring(initialWidgetTypeId_.begin(), initialWidgetTypeId_.end()));
+            return false;
+        }
     }
     if (monitorTopology_.ReconcileWidgets(
             scene_, grid_.Columns(), grid_.Rows()) > 0) SaveScene();
     SynchronizeWidgetWindows();
     ScheduleNextWidgetUpdate();
+    if (!hwnd_ || !IsWindow(hwnd_)) {
+        diagnostics_.Log(L"desktop host was destroyed during initialization");
+        return false;
+    }
+    initializationComplete_ = true;
+    diagnostics_.Log(L"desktop host initialization complete");
     return true;
 }
 
 int DesktopHost::RunMessageLoop() {
+    diagnostics_.Log(L"message loop entered");
     MSG message{};
     while (true) {
         const BOOL status = GetMessageW(&message, nullptr, 0, 0);
         if (status == -1) {
-            return 1;
+            diagnostics_.LogWin32Failure(L"GetMessage", GetLastError());
+            return 31;
         }
         if (status == 0) {
-            return static_cast<int>(message.wParam);
+            const int exitCode = static_cast<int>(message.wParam);
+            diagnostics_.Log(L"message loop received WM_QUIT; exit code=" +
+                std::to_wstring(exitCode));
+            return exitCode;
         }
         if (message.message == WM_KEYDOWN && message.wParam == VK_ESCAPE && editMode_) {
             SetEditMode(false);
@@ -149,7 +207,7 @@ LRESULT CALLBACK DesktopHost::WindowProc(HWND hwnd, UINT message, WPARAM wParam,
         self = reinterpret_cast<DesktopHost*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     }
 
-    if (self) {
+        if (self) {
         const LRESULT result = self->HandleMessage(message, wParam, lParam);
         if (message == WM_NCDESTROY) {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
@@ -182,6 +240,7 @@ void DesktopHost::SetEditMode(bool enabled) {
     editMode_ = enabled;
     if (!editMode_) {
         EndDrag();
+        studio_.CancelInteraction();
     }
     for (const auto& window : widgetWindows_) window->SetEditMode(editMode_);
     InvalidateDesktop();
@@ -205,7 +264,20 @@ void DesktopHost::BeginDrag(std::string_view widgetId, PointF pointer, HWND capt
 }
 
 void DesktopHost::OpenWidgetLibrary() {
-    library_.Open(nullptr, instance_, registry_, [this](std::string typeId) { CreateWidget(typeId); });
+    SetLastError(ERROR_SUCCESS);
+    if (library_.Open(nullptr, instance_, registry_, [this](std::string typeId) {
+            static_cast<void>(CreateWidget(typeId));
+        })) {
+        libraryWindowErrorShown_ = false;
+        return;
+    }
+    const DWORD error = GetLastError() == ERROR_SUCCESS ? ERROR_GEN_FAILURE : GetLastError();
+    diagnostics_.LogWin32Failure(L"Widget Library window creation", error);
+    if (!libraryWindowErrorShown_) {
+        MessageBoxW(hwnd_, L"Widget Studio could not open the Widget Library. See the startup log for details.",
+            L"Widget Studio", MB_OK | MB_ICONERROR);
+        libraryWindowErrorShown_ = true;
+    }
 }
 
 void DesktopHost::OpenWidgetStudio() {
@@ -242,14 +314,23 @@ void DesktopHost::ToggleLaunchAtLogin() {
     }
 }
 
-void DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
-    if (!scene_.CreateWidget(typeId, ActiveMonitorId())) return;
+bool DesktopHost::CreateWidget(std::string_view typeId, bool persist) {
+    if (!scene_.CreateWidget(typeId, ActiveMonitorId())) {
+        diagnostics_.Log(L"widget creation failed: type=" +
+            std::wstring(typeId.begin(), typeId.end()));
+        if (persist) {
+            MessageBoxW(hwnd_, L"Widget Studio could not create the selected widget.",
+                L"Widget Studio", MB_OK | MB_ICONERROR);
+        }
+        return false;
+    }
     SetEditMode(true);
     if (persist) SaveScene();
     ScheduleNextWidgetUpdate();
     SynchronizeWidgetWindows();
     InvalidateDesktop();
     studio_.Refresh();
+    return true;
 }
 
 std::wstring DesktopHost::ActiveMonitorId() const {
@@ -295,6 +376,7 @@ void DesktopHost::SynchronizeWidgetWindows() {
         }
     }
     if (creationFailed && !widgetWindowErrorShown_) {
+        diagnostics_.Log(L"one or more widget windows could not be created or positioned; core host remains active");
         MessageBoxW(hwnd_,
             L"Widget Studio could not create or position one or more desktop widget windows. "
             L"The scene remains saved and WidgetStudio will retry after a display or Explorer refresh.",
@@ -302,6 +384,10 @@ void DesktopHost::SynchronizeWidgetWindows() {
         widgetWindowErrorShown_ = true;
     } else if (!creationFailed) {
         widgetWindowErrorShown_ = false;
+    }
+    if (!initializationComplete_) {
+        diagnostics_.Log(L"widget windows synchronized: " +
+            std::to_wstring(widgetWindows_.size()) + L" active");
     }
 
     HWND previous = HWND_BOTTOM;
@@ -358,7 +444,7 @@ void DesktopHost::DeleteSelectedWidgets() {
 
 void DesktopHost::DuplicatePrimaryWidget() {
     const auto primary = scene_.PrimarySelection();
-    if (primary && scene_.DuplicateWidget(*primary)) {
+    if (primary && scene_.DuplicateWidget(*primary, activeBounds_)) {
         SaveScene();
         ScheduleNextWidgetUpdate();
         SynchronizeWidgetWindows();
@@ -575,7 +661,9 @@ bool DesktopHost::HandleWidgetKeyDown(WPARAM key) {
 
 LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
     if (taskbarCreatedMessage_ != 0 && message == taskbarCreatedMessage_) {
-        tray_.RestoreAfterExplorerRestart();
+        if (!tray_.RestoreAfterExplorerRestart()) {
+            diagnostics_.LogWin32Failure(L"Shell_NotifyIcon(NIM_ADD after Explorer restart)", GetLastError());
+        }
         for (const auto& window : widgetWindows_) {
             window->Reattach();
             window->SetEditMode(editMode_);
@@ -658,6 +746,8 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
             ToggleLaunchAtLogin();
             return 0;
         case TrayController::kCommandExit:
+            normalExitRequested_ = true;
+            diagnostics_.Log(L"normal exit requested from tray command");
             DestroyWindow(hwnd_);
             return 0;
         default:
@@ -680,6 +770,9 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         break;
 
     case WM_DESTROY:
+        diagnostics_.Log(initializationComplete_
+            ? L"desktop host received WM_DESTROY after initialization"
+            : L"desktop host received WM_DESTROY during initialization");
         if (mediaSession_) mediaSession_->SetChangedCallback({});
         studio_.Close();
         widgetWindows_.clear();
@@ -687,7 +780,7 @@ LRESULT DesktopHost::HandleMessage(UINT message, WPARAM wParam, LPARAM lParam) {
         if (hotkeyRegistered_) UnregisterHotKey(hwnd_, kHotkeyToggleEdit);
         hotkeyRegistered_ = false;
         tray_.Shutdown();
-        PostQuitMessage(0);
+        PostQuitMessage(normalExitRequested_ ? 0 : (initializationComplete_ ? 30 : 29));
         return 0;
 
     default:

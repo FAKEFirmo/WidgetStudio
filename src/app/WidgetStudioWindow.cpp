@@ -150,11 +150,16 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
 }
 
 void WidgetStudioWindow::Close() noexcept {
+    CancelInteraction();
     if (hwnd_ && IsWindow(hwnd_)) DestroyWindow(hwnd_);
     previewRenderer_.reset();
     assetLibrary_.reset();
     hwnd_ = nullptr;
     ResetControlHandles();
+}
+
+void WidgetStudioWindow::CancelInteraction() {
+    EndPreviewDrag();
 }
 
 void WidgetStudioWindow::ResetControlHandles() noexcept {
@@ -717,7 +722,7 @@ bool WidgetStudioWindow::HandleEditKey(WPARAM key) {
     const auto primary = scene_->PrimarySelection();
     if (key == 'D') {
         EndPreviewDrag();
-        if (primary && scene_->DuplicateWidget(*primary)) NotifySceneChanged();
+        if (primary && scene_->DuplicateWidget(*primary, layoutBounds_)) NotifySceneChanged();
         return true;
     }
     if (key == 'L') {
@@ -760,7 +765,7 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         case kOpenLibrary: if (openLibrary_) openLibrary_(); return 0;
         case kDuplicateWidget: {
             const auto primary = scene_->PrimarySelection();
-            if (primary && scene_->DuplicateWidget(*primary)) NotifySceneChanged();
+            if (primary && scene_->DuplicateWidget(*primary, layoutBounds_)) NotifySceneChanged();
             return 0;
         }
         case kDeleteWidget:

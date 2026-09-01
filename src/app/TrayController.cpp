@@ -18,9 +18,12 @@ bool TrayController::Initialize(HWND owner) {
     data_.uFlags = NIF_MESSAGE | NIF_ICON | NIF_TIP;
     data_.uCallbackMessage = kTrayCallbackMessage;
     data_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
+    if (!data_.hIcon) return false;
     lstrcpynW(data_.szTip, L"Widget Studio", static_cast<int>(std::size(data_.szTip)));
 
+    SetLastError(ERROR_SUCCESS);
     initialized_ = Shell_NotifyIconW(NIM_ADD, &data_) == TRUE;
+    if (!initialized_ && GetLastError() == ERROR_SUCCESS) SetLastError(ERROR_GEN_FAILURE);
     if (initialized_) {
         data_.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &data_);
@@ -28,12 +31,16 @@ bool TrayController::Initialize(HWND owner) {
     return initialized_;
 }
 
-void TrayController::RestoreAfterExplorerRestart() {
-    if (!initialized_) return;
+bool TrayController::RestoreAfterExplorerRestart() {
+    if (!initialized_) return false;
+    SetLastError(ERROR_SUCCESS);
     if (Shell_NotifyIconW(NIM_ADD, &data_) == TRUE) {
         data_.uVersion = NOTIFYICON_VERSION_4;
         Shell_NotifyIconW(NIM_SETVERSION, &data_);
+        return true;
     }
+    if (GetLastError() == ERROR_SUCCESS) SetLastError(ERROR_GEN_FAILURE);
+    return false;
 }
 
 void TrayController::Shutdown() noexcept {
@@ -63,6 +70,9 @@ void TrayController::ShowContextMenu(bool editMode, bool launchAtLogin) {
     GetCursorPos(&cursor);
     SetForegroundWindow(owner_);
     TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN, cursor.x, cursor.y, 0, owner_, nullptr);
+    // Required by the notification-area menu contract so clicking elsewhere
+    // reliably dismisses a menu owned by an otherwise hidden window.
+    PostMessageW(owner_, WM_NULL, 0, 0);
     DestroyMenu(menu);
 }
 

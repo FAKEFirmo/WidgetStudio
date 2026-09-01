@@ -43,7 +43,7 @@ public:
     WidgetInstance* CreateWidget(std::string_view typeId, std::wstring_view monitorId = L"primary");
     bool RemoveWidget(std::string_view instanceId) noexcept;
     std::size_t RemoveSelectedWidgets() noexcept;
-    WidgetInstance* DuplicateWidget(std::string_view instanceId);
+    WidgetInstance* DuplicateWidget(std::string_view instanceId, RectF bounds = {});
     bool SetWidgetLocked(std::string_view instanceId, bool locked) noexcept;
     bool SetWidgetLayoutMode(std::string_view instanceId, LayoutMode mode,
         const GridLayout& grid, const GridMetrics& metrics) noexcept;
@@ -60,6 +60,8 @@ public:
 private:
     [[nodiscard]] GridPlacement FindInitialPlacement(
         GridSize size, std::wstring_view monitorId) const noexcept;
+    [[nodiscard]] FreePlacement FindDuplicateFreePlacement(
+        const WidgetInstance& source, RectF bounds) const noexcept;
     const WidgetRegistry& registry_;
     std::vector<WidgetInstance> widgets_;
     int gridColumns_{12};

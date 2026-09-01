@@ -44,6 +44,8 @@ GitHub-hosted validation creates `WidgetStudio-portable.zip` from that directory
 
 Run `WidgetStudio.exe` from the Debug build tree in CLion. The Debug configuration registers a diagnostic widget; Release does not. Set `WIDGETSTUDIO_DESKTOP_BACKEND=windowed` only for a process-local diagnostic run when WorkerW behavior must be isolated. This environment variable is not installed or persisted by WidgetStudio.
 
+For a launch that exits before any tray icon appears, inspect `data\logs\startup.log` in a portable package. Normal-mode builds use `%LOCALAPPDATA%\WidgetStudio\logs\startup.log`; if neither location can be opened, logging falls back to `%TEMP%\WidgetStudio-startup.log`. The log is truncated on each launch and records Win32 errors, HRESULTs, `WM_DESTROY`, message-loop entry/exit, and the single-instance decision. Exit code `2` means another process already owns `Local\WidgetStudio.SingleInstance`; when its hidden host can be found, the log also records that process ID and executable path. All initialization failures and unexpected host destruction return other non-zero codes.
+
 ## Portable runtime layout
 
 ```text

@@ -1,5 +1,6 @@
 #include "desktop/WidgetWindow.h"
 
+#include "app/StartupDiagnostics.h"
 #include "desktop/DesktopHost.h"
 #include "desktop/WidgetWindowPlacement.h"
 
@@ -19,6 +20,7 @@ bool RegisterWidgetWindowClass(HINSTANCE instance) {
     windowClass.hInstance = instance;
     windowClass.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     windowClass.lpszClassName = kWidgetWindowClassName;
+    SetLastError(ERROR_SUCCESS);
     return RegisterClassExW(&windowClass) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
 }
 
@@ -31,15 +33,33 @@ bool WidgetWindow::Create(DesktopHost& host, HINSTANCE instance, std::string ins
     host_ = &host;
     instance_ = instance;
     instanceId_ = std::move(instanceId);
-    if (!RegisterWidgetWindowClass(instance_)) return false;
+    if (!RegisterWidgetWindowClass(instance_)) {
+        host.Diagnostics().LogWin32Failure(
+            L"RegisterClassEx(WidgetStudioDesktopWidgetWindow)", GetLastError());
+        return false;
+    }
 
+    SetLastError(ERROR_SUCCESS);
     hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
         kWidgetWindowClassName, L"WidgetStudio widget", WS_POPUP,
         0, 0, 1, 1, nullptr, nullptr, instance_, this);
-    if (!hwnd_) return false;
+    if (!hwnd_) {
+        host.Diagnostics().LogWin32Failure(
+            L"CreateWindowEx(WidgetStudioDesktopWidgetWindow)", GetLastError());
+        return false;
+    }
     renderer_.SetWallpaperCache(host.Wallpaper());
     renderer_.SetSharedResources(host.Rendering());
-    if (FAILED(renderer_.Initialize(hwnd_)) || !UpdatePlacement(monitor)) {
+    const HRESULT renderResult = renderer_.Initialize(hwnd_);
+    if (FAILED(renderResult)) {
+        host.Diagnostics().LogHResultFailure(L"widget renderer initialization", renderResult);
+        Close();
+        return false;
+    }
+    if (!UpdatePlacement(monitor)) {
+        DWORD error = GetLastError();
+        if (error == ERROR_SUCCESS) error = ERROR_GEN_FAILURE;
+        host.Diagnostics().LogWin32Failure(L"widget window placement", error);
         Close();
         return false;
     }
@@ -89,9 +109,15 @@ bool WidgetWindow::UpdatePlacement(const MonitorDescriptor& monitor) {
         true,
     };
     renderer_.SetDpi(static_cast<float>(dpi_));
-    const bool positioned = backend_.UpdateTarget(hwnd_, target);
-    renderer_.Resize(static_cast<UINT>(target.width), static_cast<UINT>(target.height));
-    return positioned;
+    SetLastError(ERROR_SUCCESS);
+    if (!backend_.UpdateTarget(hwnd_, target)) return false;
+    const HRESULT resizeResult = renderer_.Resize(
+        static_cast<UINT>(target.width), static_cast<UINT>(target.height));
+    if (FAILED(resizeResult)) {
+        host_->Diagnostics().LogHResultFailure(L"widget renderer resize", resizeResult);
+        return false;
+    }
+    return true;
 }
 
 void WidgetWindow::SetEditMode(bool enabled) {
@@ -128,7 +154,17 @@ void WidgetWindow::Paint() {
             wallpaperBounds_, wallpaperDesktopSize_, widgetBoundsInWindow_)
         : S_FALSE;
     EndPaint(hwnd_, &paint);
-    if (result == D2DERR_RECREATE_TARGET) InvalidateRect(hwnd_, nullptr, FALSE);
+    if (result == D2DERR_RECREATE_TARGET) {
+        renderFailureLogged_ = false;
+        InvalidateRect(hwnd_, nullptr, FALSE);
+    } else if (FAILED(result)) {
+        if (!renderFailureLogged_ && host_) {
+            host_->Diagnostics().LogHResultFailure(L"widget render", result);
+            renderFailureLogged_ = true;
+        }
+    } else {
+        renderFailureLogged_ = false;
+    }
 }
 
 LRESULT CALLBACK WidgetWindow::WindowProc(HWND hwnd, UINT message, WPARAM wParam, LPARAM lParam) {

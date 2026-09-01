@@ -15,6 +15,7 @@ set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
 add_executable(WidgetStudio WIN32
     src/main.cpp
     src/app/Application.cpp
+    src/app/StartupDiagnostics.cpp
     src/app/TrayController.cpp
     src/app/WidgetLibraryWindow.cpp
     src/app/WidgetStudioWindow.cpp
