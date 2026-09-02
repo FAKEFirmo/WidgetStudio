@@ -4,7 +4,7 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 
 ## Version codes
 
-WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; major alpha improvements increment the second number, while bug fixes, tweaks, and small improvements add or increment the third number. The current build is `V0.1`.
+WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; major alpha improvements increment the second number, while bug fixes, tweaks, and small improvements add or increment the third number. The current build is `V0.1.1`.
 
 ## Features
 
@@ -12,7 +12,7 @@ WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; ma
 - Square 12 x 7 grid placement plus free DIP layout, alignment, matching, and distribution.
 - Click/Shift-click selection, dragging, locking, duplication, removal, passive mode, and explicit widget action hit regions.
 - Native Widget Library and Widget Studio windows operating on the shared live scene.
-- A compact tabbed settings workspace with direct auto-saving controls for every widget option, monitor assignment, and a shared-scene preview.
+- A compact dark settings workspace with direct auto-saving controls for every widget option, monitor assignment, and a shared-scene preview.
 - Versioned/migrating atomic JSON persistence with backup, unknown-setting preservation, and application-owned photo imports.
 - Per-Monitor DPI Awareness V2, one lightweight HWND per widget, monitor association/isolation, missing-monitor migration, and work-area/resolution reconciliation.
 - Real-desktop WorkerW attachment by default, with a non-crashing normal-window fallback and Explorer restart recovery.

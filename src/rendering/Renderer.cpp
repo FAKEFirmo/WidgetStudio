@@ -81,7 +81,7 @@ HRESULT Renderer::CreateDeviceResources() {
         static_cast<UINT32>(std::max<LONG>(1, rc.bottom - rc.top)));
 
     const HRESULT hr = resources_->D2DFactory()->CreateHwndRenderTarget(
-        D2D1::RenderTargetProperties(),
+        D2D1::RenderTargetProperties(D2D1_RENDER_TARGET_TYPE_SOFTWARE),
         D2D1::HwndRenderTargetProperties(hwnd_, size),
         renderTarget_.GetAddressOf());
     if (SUCCEEDED(hr)) {

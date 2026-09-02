@@ -9,7 +9,8 @@ struct GridMetrics {
     int columns{12};
     int rows{7};
     float cellSize{};
-    float gap{10.0f};
+    float columnGap{10.0f};
+    float rowGap{10.0f};
     float originX{};
     float originY{};
     float contentWidth{};

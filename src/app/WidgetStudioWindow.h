@@ -7,6 +7,7 @@
 #include "windows/MonitorTopology.h"
 
 #include <filesystem>
+#include <array>
 #include <functional>
 #include <memory>
 #include <optional>
@@ -69,7 +70,7 @@ private:
     HINSTANCE instance_{};
     HWND hwnd_{};
     HWND preview_{};
-    HWND settingsTabs_{};
+    std::array<HWND, 4> settingsPageButtons_{};
     HWND monitorChoice_{};
     HWND layoutMode_{};
     HWND locked_{};

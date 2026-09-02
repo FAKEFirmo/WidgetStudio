@@ -8,11 +8,11 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
-#include <commctrl.h>
 #include <cwchar>
 #include <shobjidl.h>
 #include <string>
 #include <string_view>
+#include <uxtheme.h>
 #include <utility>
 #include <vector>
 #include <windowsx.h>
@@ -46,17 +46,30 @@ constexpr int kPadding = 225;
 constexpr int kBorder = 226;
 constexpr int kShadow = 227;
 constexpr int kShowGrid = 228;
-constexpr int kSettingsTabs = 229;
+constexpr int kSettingsPageBase = 229;
 constexpr int kWidgetSettingBase = 400;
 constexpr int kWidgetBrowseBase = 500;
 
 HWND AddControl(HWND parent, HINSTANCE instance, const wchar_t* type, const wchar_t* text,
     DWORD style, int id = 0, DWORD extendedStyle = 0) {
+    if (wcscmp(type, L"BUTTON") == 0 && (style & BS_TYPEMASK) == BS_PUSHBUTTON) {
+        style = (style & ~BS_TYPEMASK) | BS_OWNERDRAW;
+    } else if (wcscmp(type, L"COMBOBOX") == 0 && (style & CBS_DROPDOWNLIST) != 0) {
+        style |= CBS_OWNERDRAWFIXED | CBS_HASSTRINGS;
+    }
     HWND control = CreateWindowExW(extendedStyle, type, text, WS_CHILD | WS_VISIBLE | style,
         0, 0, 100, 24, parent, id ? reinterpret_cast<HMENU>(static_cast<INT_PTR>(id)) : nullptr,
         instance, nullptr);
     if (control) SendMessageW(control, WM_SETFONT,
         reinterpret_cast<WPARAM>(GetStockObject(DEFAULT_GUI_FONT)), TRUE);
+    if (control && wcscmp(type, L"BUTTON") == 0) {
+        const DWORD buttonType = style & BS_TYPEMASK;
+        if (buttonType == BS_AUTOCHECKBOX || buttonType == BS_GROUPBOX) {
+            // The themed Windows 10 checkbox/group-box renderer assumes a
+            // light parent and ignores our dark control colors.
+            SetWindowTheme(control, L"", L"");
+        }
+    }
     return control;
 }
 
@@ -102,6 +115,61 @@ void EnableNativeDarkFrame(HWND window) {
         static_cast<void>(setAttribute(window, 20, &enabled, sizeof(enabled)));
     }
     FreeLibrary(module);
+}
+
+void DrawSettingsNavigationButton(const DRAWITEMSTRUCT& item, bool active) {
+    const bool pressed = (item.itemState & ODS_SELECTED) != 0;
+    const COLORREF background = active
+        ? (pressed ? RGB(69, 91, 158) : RGB(55, 72, 120))
+        : (pressed ? RGB(38, 44, 54) : RGB(24, 28, 34));
+    HBRUSH brush = CreateSolidBrush(background);
+    FillRect(item.hDC, &item.rcItem, brush);
+    DeleteObject(brush);
+
+    HPEN pen = CreatePen(PS_SOLID, active ? 2 : 1,
+        active ? RGB(142, 167, 255) : RGB(72, 79, 91));
+    HGDIOBJ previousPen = SelectObject(item.hDC, pen);
+    HGDIOBJ previousBrush = SelectObject(item.hDC, GetStockObject(NULL_BRUSH));
+    Rectangle(item.hDC, item.rcItem.left, item.rcItem.top,
+        item.rcItem.right, item.rcItem.bottom);
+    SelectObject(item.hDC, previousBrush);
+    SelectObject(item.hDC, previousPen);
+    DeleteObject(pen);
+
+    wchar_t text[64]{};
+    GetWindowTextW(item.hwndItem, text, static_cast<int>(std::size(text)));
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, (item.itemState & ODS_DISABLED) != 0
+        ? RGB(128, 135, 145) : RGB(248, 249, 252));
+    RECT textRect = item.rcItem;
+    DrawTextW(item.hDC, text, -1, &textRect,
+        DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    if ((item.itemState & ODS_FOCUS) != 0) {
+        InflateRect(&textRect, -4, -4);
+        DrawFocusRect(item.hDC, &textRect);
+    }
+}
+
+void DrawDarkComboItem(const DRAWITEMSTRUCT& item) {
+    const bool disabled = (item.itemState & ODS_DISABLED) != 0;
+    const bool selectedListItem = (item.itemState & ODS_SELECTED) != 0 &&
+        (item.itemState & ODS_COMBOBOXEDIT) == 0;
+    HBRUSH brush = CreateSolidBrush(selectedListItem ? RGB(55, 72, 120) : RGB(22, 25, 30));
+    FillRect(item.hDC, &item.rcItem, brush);
+    DeleteObject(brush);
+
+    wchar_t text[192]{};
+    if (item.itemID != static_cast<UINT>(-1)) {
+        SendMessageW(item.hwndItem, CB_GETLBTEXT, item.itemID, reinterpret_cast<LPARAM>(text));
+    }
+    RECT textRect = item.rcItem;
+    textRect.left += 8;
+    textRect.right -= 4;
+    SetBkMode(item.hDC, TRANSPARENT);
+    SetTextColor(item.hDC, disabled ? RGB(130, 137, 147) : RGB(248, 249, 252));
+    DrawTextW(item.hDC, text, -1, &textRect,
+        DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS);
+    if ((item.itemState & ODS_FOCUS) != 0) DrawFocusRect(item.hDC, &item.rcItem);
 }
 
 } // namespace
@@ -197,7 +265,7 @@ void WidgetStudioWindow::CancelInteraction() {
 
 void WidgetStudioWindow::ResetControlHandles() noexcept {
     preview_ = nullptr;
-    settingsTabs_ = nullptr;
+    settingsPageButtons_.fill(nullptr);
     monitorChoice_ = nullptr;
     layoutMode_ = nullptr;
     locked_ = nullptr;
@@ -296,22 +364,17 @@ LRESULT CALLBACK WidgetStudioWindow::PreviewProc(HWND hwnd, UINT message, WPARAM
 }
 
 bool WidgetStudioWindow::CreateControls() {
-    INITCOMMONCONTROLSEX commonControls{sizeof(commonControls), ICC_TAB_CLASSES};
-    if (!InitCommonControlsEx(&commonControls)) return false;
     layoutFields_.clear();
     appearanceFields_.clear();
     widgetFields_.clear();
     preview_ = CreateWindowExW(WS_EX_CLIENTEDGE, kPreviewClass, nullptr, WS_CHILD | WS_VISIBLE,
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
-    settingsTabs_ = AddControl(hwnd_, instance_, WC_TABCONTROLW, nullptr,
-        WS_TABSTOP, kSettingsTabs);
-    for (const wchar_t* label : {L"Layout", L"Appearance", L"Widget content", L"Actions"}) {
-        TCITEMW item{};
-        item.mask = TCIF_TEXT;
-        item.pszText = const_cast<wchar_t*>(label);
-        TabCtrl_InsertItem(settingsTabs_, TabCtrl_GetItemCount(settingsTabs_), &item);
+    const std::array<const wchar_t*, 4> pageLabels{
+        L"Layout", L"Appearance", L"Widget content", L"Actions"};
+    for (std::size_t index = 0; index < settingsPageButtons_.size(); ++index) {
+        settingsPageButtons_[index] = AddControl(hwnd_, instance_, L"BUTTON", pageLabels[index],
+            BS_OWNERDRAW | WS_TABSTOP, kSettingsPageBase + static_cast<int>(index));
     }
-    TabCtrl_SetCurSel(settingsTabs_, activeSettingsPage_);
     layoutSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Layout && placement", BS_GROUPBOX);
     appearanceSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Appearance", BS_GROUPBOX);
     widgetSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Widget content", BS_GROUPBOX);
@@ -413,7 +476,8 @@ bool WidgetStudioWindow::CreateControls() {
     widgetEmpty_ = AddControl(hwnd_, instance_, L"STATIC",
         L"Select a configurable widget to edit its content.", SS_LEFT);
     UpdateSettingsPageVisibility();
-    return preview_ && settingsTabs_ && monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
+    return preview_ && std::ranges::all_of(settingsPageButtons_, [](HWND button) { return button != nullptr; }) &&
+        monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
         appearanceMode_ && glass_ && opacity_ && blur_ && radius_ && padding_ && border_ && shadow_ && showGrid_ &&
         positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ && widgetEmpty_ &&
         layoutSection_ && appearanceSection_ && widgetSection_ && actionsSection_ &&
@@ -446,6 +510,7 @@ void WidgetStudioWindow::UpdateSettingsPageVisibility() {
     for (HWND control : {openLibraryButton_, duplicate_, delete_, alignment_, applyAlignment_}) {
         ShowWindow(control, actionsVisible ? SW_SHOW : SW_HIDE);
     }
+    for (HWND button : settingsPageButtons_) InvalidateRect(button, nullptr, TRUE);
 }
 
 void WidgetStudioWindow::LayoutControls(int width, int height) {
@@ -467,16 +532,15 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     const int widgetHeight = sectionHeight(std::max<std::size_t>(1, widgetFields_.size()), 0);
     const int actionsHeight = static_cast<int>(112.0f * dpiScale);
     const int pageHeight = std::max({layoutHeight, appearanceHeight, widgetHeight, actionsHeight});
-    const int tabHeight = static_cast<int>(32.0f * dpiScale);
+    const int navigationHeight = static_cast<int>(34.0f * dpiScale);
     const int naturalPreviewHeight = std::max(1, static_cast<int>(std::lround(
         static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
-    const int availablePreviewHeight = height - margin * 2 - gap * 2 - tabHeight - pageHeight;
-    const int minimumPreviewHeight = static_cast<int>(160.0f * dpiScale);
-    const int previewHeight = std::min(naturalPreviewHeight,
-        std::max(minimumPreviewHeight, availablePreviewHeight));
-    const int previewWidth = std::min(contentWidth, std::max(1,
-        static_cast<int>(std::lround(static_cast<float>(previewHeight) * monitorAspect))));
-    contentHeight_ = margin + previewHeight + gap + tabHeight + gap + pageHeight + margin;
+    // Preserve the monitor aspect ratio while using the full workspace width.
+    // The settings surface already scrolls, so shrinking the preview to fit all
+    // controls only created large, visually distracting side gutters.
+    const int previewWidth = contentWidth;
+    const int previewHeight = naturalPreviewHeight;
+    contentHeight_ = margin + previewHeight + gap + navigationHeight + gap + pageHeight + margin;
     scrollOffset_ = std::clamp(scrollOffset_, 0, std::max(0, contentHeight_ - height));
 
     SCROLLINFO scroll{sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS};
@@ -495,8 +559,16 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
 
     place(preview_, margin + (contentWidth - previewWidth) / 2, y, previewWidth, previewHeight);
     y += previewHeight + gap;
-    place(settingsTabs_, margin, y, contentWidth, tabHeight);
-    y += tabHeight + gap;
+    const int navigationGap = static_cast<int>(6.0f * dpiScale);
+    const int navigationButtonWidth =
+        (contentWidth - navigationGap * static_cast<int>(settingsPageButtons_.size() - 1)) /
+        static_cast<int>(settingsPageButtons_.size());
+    for (std::size_t index = 0; index < settingsPageButtons_.size(); ++index) {
+        place(settingsPageButtons_[index],
+            margin + static_cast<int>(index) * (navigationButtonWidth + navigationGap), y,
+            navigationButtonWidth, navigationHeight);
+    }
+    y += navigationHeight + gap;
 
     const auto placeSection = [&](HWND group, const std::vector<FieldControls>& fields,
         int top, int sectionSize, HWND action) {
@@ -1107,6 +1179,30 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         SetBkColor(dc, RGB(22, 25, 30));
         return reinterpret_cast<LRESULT>(fieldBrush_);
     }
+    case WM_DRAWITEM: {
+        const auto* item = reinterpret_cast<const DRAWITEMSTRUCT*>(lParam);
+        if (item && item->CtlType == ODT_BUTTON) {
+            const bool navigation = item->CtlID >= kSettingsPageBase &&
+                item->CtlID < kSettingsPageBase + settingsPageButtons_.size();
+            DrawSettingsNavigationButton(*item, navigation &&
+                static_cast<int>(item->CtlID - kSettingsPageBase) == activeSettingsPage_);
+            return TRUE;
+        }
+        if (item && item->CtlType == ODT_COMBOBOX) {
+            DrawDarkComboItem(*item);
+            return TRUE;
+        }
+        break;
+    }
+    case WM_MEASUREITEM: {
+        auto* item = reinterpret_cast<MEASUREITEMSTRUCT*>(lParam);
+        if (item && item->CtlType == ODT_COMBOBOX) {
+            const UINT dpi = std::max(96u, GetDpiForWindow(hwnd_));
+            item->itemHeight = static_cast<UINT>(MulDiv(24, static_cast<int>(dpi), 96));
+            return TRUE;
+        }
+        break;
+    }
     case WM_DPICHANGED: {
         const RECT* suggested = reinterpret_cast<const RECT*>(lParam);
         SetWindowPos(hwnd_, nullptr, suggested->left, suggested->top,
@@ -1117,6 +1213,16 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         return 0;
     }
     case WM_COMMAND:
+        if (LOWORD(wParam) >= kSettingsPageBase &&
+            LOWORD(wParam) < kSettingsPageBase + static_cast<int>(settingsPageButtons_.size()) &&
+            HIWORD(wParam) == BN_CLICKED) {
+            activeSettingsPage_ = static_cast<int>(LOWORD(wParam) - kSettingsPageBase);
+            UpdateSettingsPageVisibility();
+            RECT client{};
+            GetClientRect(hwnd_, &client);
+            LayoutControls(client.right - client.left, client.bottom - client.top);
+            return 0;
+        }
         if (LOWORD(wParam) >= kWidgetSettingBase &&
             LOWORD(wParam) < kWidgetSettingBase + static_cast<int>(widgetSettingControls_.size())) {
             const std::size_t index = static_cast<std::size_t>(LOWORD(wParam) - kWidgetSettingBase);
@@ -1177,20 +1283,6 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         default: break;
         }
         break;
-    case WM_NOTIFY: {
-        const auto* notification = reinterpret_cast<const NMHDR*>(lParam);
-        if (notification && notification->hwndFrom == settingsTabs_ &&
-            notification->code == TCN_SELCHANGE) {
-            const int selected = TabCtrl_GetCurSel(settingsTabs_);
-            activeSettingsPage_ = std::clamp(selected, 0, 3);
-            UpdateSettingsPageVisibility();
-            RECT client{};
-            GetClientRect(hwnd_, &client);
-            LayoutControls(client.right - client.left, client.bottom - client.top);
-            return 0;
-        }
-        break;
-    }
     case WM_KEYDOWN:
         if (HandleEditKey(wParam)) return 0;
         break;

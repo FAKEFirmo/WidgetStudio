@@ -128,20 +128,21 @@ void TestGridGeometryAndFullPlacement() {
     const ws::RectF first = grid.RectFor({0, 0, 1, 1}, metrics);
     const ws::RectF adjacent = grid.RectFor({1, 0, 1, 1}, metrics);
     const ws::RectF spanned = grid.RectFor({0, 0, 2, 1}, metrics);
-    Require(first.width == first.height && adjacent.x - first.Right() == metrics.gap,
+    Require(first.width == first.height && adjacent.x - first.Right() == metrics.columnGap,
         "grid cells should be square and separated by the shared gap");
     Require(spanned.Right() == adjacent.Right(),
         "spanned widget edges should resolve from the same grid metrics without drift");
 
     const ws::GridMetrics fullHd = grid.Calculate({1920.0f, 1080.0f});
     Require(fullHd.columns == 12 && fullHd.rows == 7 && Near(fullHd.originY, 18.0f) &&
-        Near(fullHd.contentHeight, 1044.0f) && Near(fullHd.originX, 61.5714f),
-        "the 1920x1080 grid should use the complete monitor and center deterministic side remainder");
-    Require(Near(fullHd.cellSize, 140.5714f) && Near(fullHd.contentWidth, 1796.8572f),
-        "the full-HD grid should retain square cells instead of stretching to rectangles");
+        Near(fullHd.contentHeight, 1044.0f) && Near(fullHd.originX, 18.0f),
+        "the 1920x1080 grid should reach the configured outer margin on every edge");
+    Require(Near(fullHd.cellSize, 140.5714f) && Near(fullHd.contentWidth, 1884.0f) &&
+        Near(fullHd.columnGap, 17.9221f) && Near(fullHd.rowGap, 10.0f),
+        "the full-HD grid should fill lateral remainder through adaptive gaps, not rectangular cells");
     const ws::RectF fullHdWidget = grid.RectFor({2, 1, 4, 2}, fullHd);
-    Require(Near(fullHdWidget.x, 362.7143f) && Near(fullHdWidget.y, 168.5714f) &&
-        Near(fullHdWidget.width, 592.2857f) && Near(fullHdWidget.height, 291.1429f) &&
+    Require(Near(fullHdWidget.x, 334.9870f) && Near(fullHdWidget.y, 168.5714f) &&
+        Near(fullHdWidget.width, 616.0519f) && Near(fullHdWidget.height, 291.1429f) &&
         fullHdWidget.Right() <= 1920.0f && fullHdWidget.Bottom() <= 1080.0f,
         "grid column, row, and spans should resolve inside the complete 1920x1080 monitor");
 

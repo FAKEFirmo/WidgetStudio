@@ -21,12 +21,13 @@ GridPlacement OuterLayout::GridForRect(
     minimumRows = std::clamp(minimumRows, 1, grid.Rows());
     maximumColumns = std::clamp(maximumColumns, minimumColumns, grid.Columns());
     maximumRows = std::clamp(maximumRows, minimumRows, grid.Rows());
-    const float stride = std::max(1.0f, metrics.cellSize + metrics.gap);
+    const float columnStride = std::max(1.0f, metrics.cellSize + metrics.columnGap);
+    const float rowStride = std::max(1.0f, metrics.cellSize + metrics.rowGap);
     placement.columnSpan = std::clamp(
-        static_cast<int>(std::lround((rect.width + metrics.gap) / stride)),
+        static_cast<int>(std::lround((rect.width + metrics.columnGap) / columnStride)),
         minimumColumns, maximumColumns);
     placement.rowSpan = std::clamp(
-        static_cast<int>(std::lround((rect.height + metrics.gap) / stride)),
+        static_cast<int>(std::lround((rect.height + metrics.rowGap) / rowStride)),
         minimumRows, maximumRows);
     return grid.MoveToPoint(placement, PointF{rect.x, rect.y}, PointF{}, metrics);
 }

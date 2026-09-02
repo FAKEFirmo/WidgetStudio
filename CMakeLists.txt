@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(WidgetStudio VERSION 0.1.0 LANGUAGES CXX RC)
+project(WidgetStudio VERSION 0.1.1 LANGUAGES CXX RC)
 
 if(NOT MSVC)
     message(FATAL_ERROR "WidgetStudio requires the MSVC toolchain.")
@@ -93,7 +93,7 @@ target_link_libraries(WidgetStudio PRIVATE
     ole32
     user32
     gdi32
-    comctl32
+    uxtheme
     windowsapp
 )
 

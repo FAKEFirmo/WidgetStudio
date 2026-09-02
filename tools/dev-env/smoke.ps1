@@ -43,6 +43,8 @@ public static class WidgetStudioSmokeNative {
     [DllImport("user32.dll")]
     public static extern bool GetWindowRect(IntPtr window, out Rect rect);
     [DllImport("user32.dll")]
+    public static extern bool IsWindowVisible(IntPtr window);
+    [DllImport("user32.dll")]
     public static extern IntPtr GetParent(IntPtr window);
     [DllImport("user32.dll")]
     public static extern int GetSystemMetrics(int index);
@@ -230,16 +232,25 @@ try {
     $sizeA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 219)
     $sizeB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 220)
     $widgetCheck = [WidgetStudioSmokeNative]::GetDlgItem($studio, 400)
+    $layoutPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 229)
+    $widgetPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 231)
     $applyUniversalButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 200)
     foreach ($control in @($layoutMode, $contentScale, $appearanceMode, $glass, $opacity,
             $blur, $radius, $positionA, $positionB, $sizeA, $sizeB, $widgetCheck,
-            $applyUniversalButton)) {
+            $applyUniversalButton, $layoutPageButton, $widgetPageButton)) {
         if ($control -eq [IntPtr]::Zero) { throw 'Widget Studio is missing a stable settings control.' }
     }
     foreach ($settingId in 400..405) {
         if ([WidgetStudioSmokeNative]::GetDlgItem($studio, $settingId) -eq [IntPtr]::Zero) {
             throw "Widget Studio does not expose Clock setting control $settingId directly."
         }
+    }
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $widgetPageButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    Start-Sleep -Milliseconds 50
+    if (-not [WidgetStudioSmokeNative]::IsWindowVisible($widgetCheck) -or
+        [WidgetStudioSmokeNative]::IsWindowVisible($applyUniversalButton)) {
+        throw 'Widget Studio page navigation did not expose Widget content cleanly.'
     }
     [void][WidgetStudioSmokeNative]::SendMessage($layoutMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
     $layoutChanged = 209 -bor (1 -shl 16)
