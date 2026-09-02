@@ -2,6 +2,10 @@
 
 WidgetStudio is a local-first Windows 11 desktop widget system built with C++20, Win32, Direct2D, DirectWrite, WIC, and C++/WinRT for Windows media sessions. It has no browser runtime, cloud service, telemetry, updater, or runtime network dependency.
 
+## Version codes
+
+WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; major alpha improvements increment the second number, while bug fixes, tweaks, and small improvements add or increment the third number. The current build is `V0.0.1`.
+
 ## Features
 
 - Registry-driven Clock, Calendar, Photo, and Music widgets with multiple independent instances. A diagnostic widget is available only in Debug builds.

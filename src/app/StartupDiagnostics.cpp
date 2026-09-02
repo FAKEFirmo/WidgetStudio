@@ -1,4 +1,5 @@
 #include "app/StartupDiagnostics.h"
+#include "Version.h"
 
 #include <array>
 #include <cwchar>
@@ -65,7 +66,7 @@ std::wstring WindowsMessage(DWORD error) {
 
 StartupDiagnostics::StartupDiagnostics() noexcept {
     Open();
-    Log(L"WidgetStudio startup");
+    Log(std::wstring(L"WidgetStudio startup ") + kDisplayVersion);
     try {
         Log(L"process id=" + std::to_wstring(GetCurrentProcessId()));
         using RtlGetVersionFunction = LONG(WINAPI*)(OSVERSIONINFOW*);

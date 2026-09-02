@@ -105,7 +105,7 @@ Music uses the established Portrait, Square, Landscape, and Ultra-wide authored 
 
 ## Wallpaper and glass
 
-`WallpaperCache` queries `IDesktopWallpaper` for the wallpaper assigned to each physical display, the shell background color, and the current Center/Tile/Stretch/Fit/Fill/Span placement mode. Each unique source file is decoded once at full resolution. `WallpaperPlacement` calculates the canonical source-to-monitor transform, and the cache composes one native-physical-resolution WIC backing bitmap per monitor. Span uses the virtual-desktop rectangle; every other mode remains monitor-local.
+`WallpaperCache` queries `IDesktopWallpaper` for the wallpaper assigned to each physical display, the shell background color, and the current Center/Tile/Stretch/Fit/Fill/Span placement mode. Each unique source file is decoded once at full resolution. `WallpaperPlacement` calculates the canonical source-to-monitor transform, including Explorer's one-third vertical CropToFit offset for Fill, and the cache composes one native-physical-resolution WIC backing bitmap per monitor. Span uses the virtual-desktop rectangle; every other mode remains monitor-local.
 
 Each HWND renderer crops its exact physical monitor rectangle from that shared backing bitmap. The crop may include blur padding, but it is never resized to the widget. Glass uses a full-card-resolution intermediate and symmetric source samples, so blur softens detail without changing the canonical transform or enlarging a thumbnail. Rounded geometry clips glass, tint, border, and widget content after monitor-space sampling. Cache entries invalidate only for wallpaper, display/DPI, render-target, geometry, or appearance changes. No desktop capture, continuous reload, or idle render loop is used.
 

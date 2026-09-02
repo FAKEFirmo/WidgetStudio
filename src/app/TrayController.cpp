@@ -1,7 +1,9 @@
 #include "app/TrayController.h"
+#include "Version.h"
 
 #include <iterator>
 #include <shellapi.h>
+#include <string>
 
 namespace ws {
 
@@ -19,7 +21,8 @@ bool TrayController::Initialize(HWND owner) {
     data_.uCallbackMessage = kTrayCallbackMessage;
     data_.hIcon = LoadIconW(nullptr, IDI_APPLICATION);
     if (!data_.hIcon) return false;
-    lstrcpynW(data_.szTip, L"Widget Studio", static_cast<int>(std::size(data_.szTip)));
+    const std::wstring tooltip = std::wstring(L"Widget Studio ") + kDisplayVersion;
+    lstrcpynW(data_.szTip, tooltip.c_str(), static_cast<int>(std::size(data_.szTip)));
 
     SetLastError(ERROR_SUCCESS);
     initialized_ = Shell_NotifyIconW(NIM_ADD, &data_) == TRUE;

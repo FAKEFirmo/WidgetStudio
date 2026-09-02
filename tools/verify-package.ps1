@@ -19,6 +19,7 @@ try {
     foreach ($required in @(
             'WidgetStudio.exe',
             'portable.mode',
+            'VERSION.txt',
             'README.txt',
             'LICENSE',
             'assets',

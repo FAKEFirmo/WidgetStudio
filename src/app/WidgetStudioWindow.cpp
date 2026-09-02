@@ -1,4 +1,5 @@
 #include "app/WidgetStudioWindow.h"
+#include "Version.h"
 
 #include "layout/OuterLayout.h"
 #include "desktop/WidgetWindowPlacement.h"
@@ -162,7 +163,8 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     }
 
     const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
-    hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, L"Widget Studio",
+    const std::wstring title = std::wstring(L"Widget Studio ") + kDisplayVersion;
+    hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, title.c_str(),
         WS_OVERLAPPEDWINDOW | WS_VSCROLL, CW_USEDEFAULT, CW_USEDEFAULT,
         static_cast<int>(1120.0f * initialScale), static_cast<int>(820.0f * initialScale),
         owner, nullptr, instance_, this);

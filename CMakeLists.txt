@@ -1,11 +1,23 @@
 cmake_minimum_required(VERSION 3.24)
-project(WidgetStudio VERSION 1.0.0 LANGUAGES CXX RC)
+project(WidgetStudio VERSION 0.0.1 LANGUAGES CXX RC)
 
 if(NOT MSVC)
     message(FATAL_ERROR "WidgetStudio requires the MSVC toolchain.")
 endif()
 
 include(CTest)
+
+set(WIDGETSTUDIO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+file(MAKE_DIRECTORY "${WIDGETSTUDIO_GENERATED_DIR}")
+file(TO_CMAKE_PATH "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.manifest"
+    WIDGETSTUDIO_MANIFEST_RESOURCE_PATH)
+configure_file(src/app/Version.h.in
+    "${WIDGETSTUDIO_GENERATED_DIR}/Version.h" @ONLY)
+configure_file(src/app/WidgetStudio.manifest.in
+    "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.manifest" @ONLY)
+configure_file(src/app/WidgetStudio.rc.in
+    "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.rc" @ONLY)
+file(WRITE "${WIDGETSTUDIO_GENERATED_DIR}/VERSION.txt" "V${PROJECT_VERSION}\n")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -19,7 +31,7 @@ add_executable(WidgetStudio WIN32
     src/app/TrayController.cpp
     src/app/WidgetLibraryWindow.cpp
     src/app/WidgetStudioWindow.cpp
-    src/app/WidgetStudio.rc
+    "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.rc"
     src/desktop/DesktopBackendController.cpp
     src/desktop/DesktopHost.cpp
     src/desktop/WidgetWindow.cpp
@@ -50,7 +62,7 @@ add_executable(WidgetStudio WIN32
     src/windows/StartupShortcutService.cpp
 )
 
-target_include_directories(WidgetStudio PRIVATE src)
+target_include_directories(WidgetStudio PRIVATE src "${WIDGETSTUDIO_GENERATED_DIR}")
 
 target_compile_definitions(WidgetStudio PRIVATE
     UNICODE
@@ -81,6 +93,7 @@ target_link_libraries(WidgetStudio PRIVATE
 
 install(TARGETS WidgetStudio RUNTIME DESTINATION .)
 install(FILES packaging/README.txt packaging/portable.mode LICENSE DESTINATION .)
+install(FILES "${WIDGETSTUDIO_GENERATED_DIR}/VERSION.txt" DESTINATION .)
 install(CODE [[
     file(MAKE_DIRECTORY
         "${CMAKE_INSTALL_PREFIX}/assets"

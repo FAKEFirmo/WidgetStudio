@@ -1,0 +1,8 @@
+#pragma once
+
+namespace ws {
+
+inline constexpr wchar_t kDisplayVersion[] = L"V@PROJECT_VERSION@";
+inline constexpr wchar_t kNumericVersion[] = L"@PROJECT_VERSION@";
+
+} // namespace ws

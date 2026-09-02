@@ -33,6 +33,7 @@ if (-not (Test-Path -LiteralPath $executable)) {
 
 foreach ($required in @(
         'portable.mode',
+        'VERSION.txt',
         'README.txt',
         'LICENSE',
         'assets',

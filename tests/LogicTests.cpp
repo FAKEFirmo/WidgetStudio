@@ -351,6 +351,11 @@ void TestWallpaperPlacement() {
         Near(highResolution.width, 1000.0f) && Near(highResolution.height, 600.0f),
         "Fill should retain the deterministic original-bitmap to monitor pixel ratio");
 
+    const ws::WallpaperTransform squareFill = ws::WallpaperPlacement::Calculate(
+        {3840.0f, 3840.0f}, fullHd, ws::WallpaperPosition::Fill);
+    Require(Near(squareFill.scaleX, 0.5f) && Near(squareFill.destinationY, -280.0f),
+        "Fill should use Explorer's one-third vertical CropToFit offset");
+
     const ws::WallpaperTransform stretch = ws::WallpaperPlacement::Calculate(
         {1600.0f, 1200.0f}, fullHd, ws::WallpaperPosition::Stretch);
     const ws::WallpaperTransform fit = ws::WallpaperPlacement::Calculate(

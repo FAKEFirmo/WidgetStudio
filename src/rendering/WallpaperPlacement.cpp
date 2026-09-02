@@ -44,6 +44,12 @@ WallpaperTransform WallpaperPlacement::Calculate(
 
     result.destinationX = (targetWidth - source.width * result.scaleX) * 0.5f;
     result.destinationY = (targetHeight - source.height * result.scaleY) * 0.5f;
+    if (position == WallpaperPosition::Fill && result.destinationY < 0.0f) {
+        // Explorer's CropToFit composition keeps two thirds of the vertical
+        // overflow below the viewport. Reproducing that shell rule is
+        // required for glass widgets to sample the pixels behind them.
+        result.destinationY *= 2.0f / 3.0f;
+    }
     if (result.spansVirtualDesktop) {
         result.destinationX -= static_cast<float>(monitor.monitorX - monitor.virtualX);
         result.destinationY -= static_cast<float>(monitor.monitorY - monitor.virtualY);
