@@ -119,12 +119,13 @@ void ClockWidget::Render(const WidgetRenderContext& context) const {
 
 std::span<const WidgetSettingDefinition> ClockWidget::Settings() const noexcept {
     static const std::array definitions{
-        WidgetSettingDefinition{L"use24Hour", L"24-hour time", WidgetSettingKind::Boolean},
+        WidgetSettingDefinition{L"use24Hour", L"Use 24-hour time", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"showSeconds", L"Show seconds", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"showDate", L"Show date", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"showDivider", L"Show divider", WidgetSettingKind::Boolean},
         WidgetSettingDefinition{L"dateFormat", L"Date format", WidgetSettingKind::Choice,
-            {L"long", L"medium", L"short", L"weekday"}},
+            {L"long", L"medium", L"short", L"weekday"}, 0.0, 0.0, 0.0,
+            {L"Long date", L"Medium date", L"Short date", L"Weekday and date"}},
         WidgetSettingDefinition{L"fontFamily", L"Font", WidgetSettingKind::Choice,
             {L"Segoe UI Variable", L"Segoe UI", L"Arial", L"Georgia"}},
     };

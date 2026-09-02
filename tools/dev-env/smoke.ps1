@@ -229,13 +229,17 @@ try {
     $positionB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 218)
     $sizeA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 219)
     $sizeB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 220)
-    $widgetCheck = [WidgetStudioSmokeNative]::GetDlgItem($studio, 224)
+    $widgetCheck = [WidgetStudioSmokeNative]::GetDlgItem($studio, 400)
     $applyUniversalButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 200)
-    $applyWidgetButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 202)
     foreach ($control in @($layoutMode, $contentScale, $appearanceMode, $glass, $opacity,
             $blur, $radius, $positionA, $positionB, $sizeA, $sizeB, $widgetCheck,
-            $applyUniversalButton, $applyWidgetButton)) {
+            $applyUniversalButton)) {
         if ($control -eq [IntPtr]::Zero) { throw 'Widget Studio is missing a stable settings control.' }
+    }
+    foreach ($settingId in 400..405) {
+        if ([WidgetStudioSmokeNative]::GetDlgItem($studio, $settingId) -eq [IntPtr]::Zero) {
+            throw "Widget Studio does not expose Clock setting control $settingId directly."
+        }
     }
     [void][WidgetStudioSmokeNative]::SendMessage($layoutMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
     $layoutChanged = 209 -bor (1 -shl 16)
@@ -256,7 +260,7 @@ try {
 
     [void][WidgetStudioSmokeNative]::SendMessage($widgetCheck, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
     [void][WidgetStudioSmokeNative]::SendMessage(
-        $applyWidgetButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+        $studio, 0x0111, [IntPtr](400 -bor (0 -shl 16)), $widgetCheck)
     $scene = Read-Scene $scenePath
     $configured = @($scene.widgets | Where-Object { $_.instanceId -eq $configuredId })[0]
     if ($configured.state.use24Hour -ne 'false') {

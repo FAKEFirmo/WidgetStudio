@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(WidgetStudio VERSION 0.0.1 LANGUAGES CXX RC)
+project(WidgetStudio VERSION 0.1.0 LANGUAGES CXX RC)
 
 if(NOT MSVC)
     message(FATAL_ERROR "WidgetStudio requires the MSVC toolchain.")
@@ -9,6 +9,11 @@ include(CTest)
 
 set(WIDGETSTUDIO_GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY "${WIDGETSTUDIO_GENERATED_DIR}")
+if(PROJECT_VERSION_PATCH EQUAL 0)
+    set(WIDGETSTUDIO_DISPLAY_VERSION "V${PROJECT_VERSION_MAJOR}.${PROJECT_VERSION_MINOR}")
+else()
+    set(WIDGETSTUDIO_DISPLAY_VERSION "V${PROJECT_VERSION}")
+endif()
 file(TO_CMAKE_PATH "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.manifest"
     WIDGETSTUDIO_MANIFEST_RESOURCE_PATH)
 configure_file(src/app/Version.h.in
@@ -17,7 +22,7 @@ configure_file(src/app/WidgetStudio.manifest.in
     "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.manifest" @ONLY)
 configure_file(src/app/WidgetStudio.rc.in
     "${WIDGETSTUDIO_GENERATED_DIR}/WidgetStudio.rc" @ONLY)
-file(WRITE "${WIDGETSTUDIO_GENERATED_DIR}/VERSION.txt" "V${PROJECT_VERSION}\n")
+file(WRITE "${WIDGETSTUDIO_GENERATED_DIR}/VERSION.txt" "${WIDGETSTUDIO_DISPLAY_VERSION}\n")
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -88,6 +93,7 @@ target_link_libraries(WidgetStudio PRIVATE
     ole32
     user32
     gdi32
+    comctl32
     windowsapp
 )
 

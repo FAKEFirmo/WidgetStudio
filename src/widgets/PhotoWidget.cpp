@@ -149,9 +149,11 @@ void PhotoWidget::Render(const WidgetRenderContext& context) const {
 std::span<const WidgetSettingDefinition> PhotoWidget::Settings() const noexcept {
     static const std::array definitions{
         WidgetSettingDefinition{L"assetPath", L"Local image", WidgetSettingKind::File},
-        WidgetSettingDefinition{L"fitMode", L"Image fit", WidgetSettingKind::Choice, {L"fill", L"fit"}},
-        WidgetSettingDefinition{L"focalX", L"Horizontal focal point", WidgetSettingKind::Number, {}, 0.0, 1.0, 0.01},
-        WidgetSettingDefinition{L"focalY", L"Vertical focal point", WidgetSettingKind::Number, {}, 0.0, 1.0, 0.01},
+        WidgetSettingDefinition{L"fitMode", L"Image fit", WidgetSettingKind::Choice,
+            {L"fill", L"fit"}, 0.0, 0.0, 0.0,
+            {L"Fill (crop to card)", L"Fit (show entire image)"}},
+        WidgetSettingDefinition{L"focalX", L"Horizontal focal point (0-1)", WidgetSettingKind::Number, {}, 0.0, 1.0, 0.01},
+        WidgetSettingDefinition{L"focalY", L"Vertical focal point (0-1)", WidgetSettingKind::Number, {}, 0.0, 1.0, 0.01},
         WidgetSettingDefinition{L"innerFrame", L"Inner frame", WidgetSettingKind::Boolean},
     };
     return definitions;

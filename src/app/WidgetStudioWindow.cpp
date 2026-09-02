@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <commctrl.h>
 #include <cwchar>
 #include <shobjidl.h>
 #include <string>
@@ -24,9 +25,6 @@ constexpr wchar_t kStudioClass[] = L"WidgetStudioManagementWindow";
 constexpr wchar_t kPreviewClass[] = L"WidgetStudioPreviewWindow";
 constexpr int kApplyUniversal = 200;
 constexpr int kApplyAlignment = 201;
-constexpr int kApplyWidget = 202;
-constexpr int kBrowse = 203;
-constexpr int kSettingCombo = 204;
 constexpr int kOpenLibrary = 205;
 constexpr int kDuplicateWidget = 206;
 constexpr int kDeleteWidget = 207;
@@ -44,13 +42,13 @@ constexpr int kPositionB = 218;
 constexpr int kSizeA = 219;
 constexpr int kSizeB = 220;
 constexpr int kAlignment = 221;
-constexpr int kWidgetValue = 222;
-constexpr int kWidgetChoice = 223;
-constexpr int kWidgetCheck = 224;
 constexpr int kPadding = 225;
 constexpr int kBorder = 226;
 constexpr int kShadow = 227;
 constexpr int kShowGrid = 228;
+constexpr int kSettingsTabs = 229;
+constexpr int kWidgetSettingBase = 400;
+constexpr int kWidgetBrowseBase = 500;
 
 HWND AddControl(HWND parent, HINSTANCE instance, const wchar_t* type, const wchar_t* text,
     DWORD style, int id = 0, DWORD extendedStyle = 0) {
@@ -165,7 +163,7 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
     const std::wstring title = std::wstring(L"Widget Studio ") + kDisplayVersion;
     hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, title.c_str(),
-        WS_OVERLAPPEDWINDOW | WS_VSCROLL, CW_USEDEFAULT, CW_USEDEFAULT,
+        WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
         static_cast<int>(1120.0f * initialScale), static_cast<int>(820.0f * initialScale),
         owner, nullptr, instance_, this);
     if (!hwnd_ || !preview_) { Close(); return false; }
@@ -199,6 +197,7 @@ void WidgetStudioWindow::CancelInteraction() {
 
 void WidgetStudioWindow::ResetControlHandles() noexcept {
     preview_ = nullptr;
+    settingsTabs_ = nullptr;
     monitorChoice_ = nullptr;
     layoutMode_ = nullptr;
     locked_ = nullptr;
@@ -218,12 +217,7 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     sizeB_ = nullptr;
     duplicate_ = nullptr;
     alignment_ = nullptr;
-    widgetSetting_ = nullptr;
-    widgetValue_ = nullptr;
-    widgetChoice_ = nullptr;
-    widgetCheck_ = nullptr;
-    browse_ = nullptr;
-    applyWidget_ = nullptr;
+    widgetEmpty_ = nullptr;
     layoutSection_ = nullptr;
     appearanceSection_ = nullptr;
     widgetSection_ = nullptr;
@@ -235,8 +229,11 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     layoutFields_.clear();
     appearanceFields_.clear();
     widgetFields_.clear();
+    widgetSettingControls_.clear();
+    widgetSettingsTypeId_.clear();
     scrollOffset_ = 0;
     contentHeight_ = 0;
+    activeSettingsPage_ = 0;
     updatingControls_ = false;
     previewDrag_.reset();
 }
@@ -299,11 +296,22 @@ LRESULT CALLBACK WidgetStudioWindow::PreviewProc(HWND hwnd, UINT message, WPARAM
 }
 
 bool WidgetStudioWindow::CreateControls() {
+    INITCOMMONCONTROLSEX commonControls{sizeof(commonControls), ICC_TAB_CLASSES};
+    if (!InitCommonControlsEx(&commonControls)) return false;
     layoutFields_.clear();
     appearanceFields_.clear();
     widgetFields_.clear();
     preview_ = CreateWindowExW(WS_EX_CLIENTEDGE, kPreviewClass, nullptr, WS_CHILD | WS_VISIBLE,
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
+    settingsTabs_ = AddControl(hwnd_, instance_, WC_TABCONTROLW, nullptr,
+        WS_TABSTOP, kSettingsTabs);
+    for (const wchar_t* label : {L"Layout", L"Appearance", L"Widget content", L"Actions"}) {
+        TCITEMW item{};
+        item.mask = TCIF_TEXT;
+        item.pszText = const_cast<wchar_t*>(label);
+        TabCtrl_InsertItem(settingsTabs_, TabCtrl_GetItemCount(settingsTabs_), &item);
+    }
+    TabCtrl_SetCurSel(settingsTabs_, activeSettingsPage_);
     layoutSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Layout && placement", BS_GROUPBOX);
     appearanceSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Appearance", BS_GROUPBOX);
     widgetSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Widget content", BS_GROUPBOX);
@@ -387,7 +395,7 @@ bool WidgetStudioWindow::CreateControls() {
         BS_AUTOCHECKBOX | WS_TABSTOP, kShowGrid);
     SendMessageW(showGrid_, BM_SETCHECK, BST_CHECKED, 0);
     layoutFields_.push_back({showGridLabel, showGrid_});
-    applyUniversal_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply appearance && placement",
+    applyUniversal_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply all changes",
         BS_PUSHBUTTON | WS_TABSTOP, kApplyUniversal);
     openLibraryButton_ = AddControl(hwnd_, instance_, L"BUTTON", L"Add widget...",
         BS_PUSHBUTTON | WS_TABSTOP, kOpenLibrary);
@@ -402,29 +410,42 @@ bool WidgetStudioWindow::CreateControls() {
     SendMessageW(alignment_, CB_SETCURSEL, 0, 0);
     applyAlignment_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply alignment",
         BS_PUSHBUTTON | WS_TABSTOP, kApplyAlignment);
-    HWND widgetSettingLabel = AddControl(hwnd_, instance_, L"STATIC", L"Setting", 0);
-    widgetSetting_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
-        CBS_DROPDOWNLIST | WS_TABSTOP, kSettingCombo);
-    widgetFields_.push_back({widgetSettingLabel, widgetSetting_});
-    HWND widgetValueLabel = AddControl(hwnd_, instance_, L"STATIC", L"Value", 0);
-    widgetValue_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
-        ES_AUTOHSCROLL | WS_TABSTOP, kWidgetValue, WS_EX_CLIENTEDGE);
-    widgetChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
-        CBS_DROPDOWNLIST | WS_TABSTOP, kWidgetChoice);
-    widgetCheck_ = AddControl(hwnd_, instance_, L"BUTTON", L"Enabled",
-        BS_AUTOCHECKBOX | WS_TABSTOP, kWidgetCheck);
-    widgetFields_.push_back({widgetValueLabel, widgetValue_});
-    ShowWindow(widgetChoice_, SW_HIDE);
-    ShowWindow(widgetCheck_, SW_HIDE);
-    browse_ = AddControl(hwnd_, instance_, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP, kBrowse);
-    ShowWindow(browse_, SW_HIDE);
-    applyWidget_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply widget setting", BS_PUSHBUTTON | WS_TABSTOP, kApplyWidget);
-    return preview_ && monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
+    widgetEmpty_ = AddControl(hwnd_, instance_, L"STATIC",
+        L"Select a configurable widget to edit its content.", SS_LEFT);
+    UpdateSettingsPageVisibility();
+    return preview_ && settingsTabs_ && monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
         appearanceMode_ && glass_ && opacity_ && blur_ && radius_ && padding_ && border_ && shadow_ && showGrid_ &&
-        positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ &&
-        widgetSetting_ && widgetValue_ && widgetChoice_ && widgetCheck_ && browse_ && applyWidget_ &&
+        positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ && widgetEmpty_ &&
         layoutSection_ && appearanceSection_ && widgetSection_ && actionsSection_ &&
         applyUniversal_ && openLibraryButton_ && delete_ && applyAlignment_;
+}
+
+void WidgetStudioWindow::UpdateSettingsPageVisibility() {
+    const auto showFields = [](const std::vector<FieldControls>& fields, bool visible) {
+        for (const FieldControls& field : fields) {
+            ShowWindow(field.label, visible ? SW_SHOW : SW_HIDE);
+            ShowWindow(field.control, visible ? SW_SHOW : SW_HIDE);
+        }
+    };
+    const bool layoutVisible = activeSettingsPage_ == 0;
+    const bool appearanceVisible = activeSettingsPage_ == 1;
+    const bool widgetVisible = activeSettingsPage_ == 2;
+    const bool actionsVisible = activeSettingsPage_ == 3;
+    ShowWindow(layoutSection_, layoutVisible ? SW_SHOW : SW_HIDE);
+    showFields(layoutFields_, layoutVisible);
+    ShowWindow(applyUniversal_, layoutVisible ? SW_SHOW : SW_HIDE);
+    ShowWindow(appearanceSection_, appearanceVisible ? SW_SHOW : SW_HIDE);
+    showFields(appearanceFields_, appearanceVisible);
+    ShowWindow(widgetSection_, widgetVisible ? SW_SHOW : SW_HIDE);
+    showFields(widgetFields_, widgetVisible);
+    for (const WidgetSettingControls& controls : widgetSettingControls_) {
+        if (controls.browse) ShowWindow(controls.browse, widgetVisible ? SW_SHOW : SW_HIDE);
+    }
+    ShowWindow(widgetEmpty_, widgetVisible && widgetSettingControls_.empty() ? SW_SHOW : SW_HIDE);
+    ShowWindow(actionsSection_, actionsVisible ? SW_SHOW : SW_HIDE);
+    for (HWND control : {openLibraryButton_, duplicate_, delete_, alignment_, applyAlignment_}) {
+        ShowWindow(control, actionsVisible ? SW_SHOW : SW_HIDE);
+    }
 }
 
 void WidgetStudioWindow::LayoutControls(int width, int height) {
@@ -436,8 +457,6 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     const int contentWidth = std::max(1, width - margin * 2);
     const float monitorAspect = layoutBounds_.height > 0.0f
         ? layoutBounds_.width / layoutBounds_.height : 16.0f / 9.0f;
-    const int previewHeight = std::max(1, static_cast<int>(std::lround(
-        static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
     const auto sectionHeight = [rowHeight, dpiScale](std::size_t fields, int extraRows) {
         return static_cast<int>(34.0f * dpiScale) +
             (static_cast<int>((fields + 1) / 2) + extraRows) * rowHeight +
@@ -445,10 +464,19 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     };
     const int layoutHeight = sectionHeight(layoutFields_.size(), 1);
     const int appearanceHeight = sectionHeight(appearanceFields_.size(), 1);
-    const int widgetHeight = sectionHeight(widgetFields_.size(), 1);
+    const int widgetHeight = sectionHeight(std::max<std::size_t>(1, widgetFields_.size()), 0);
     const int actionsHeight = static_cast<int>(112.0f * dpiScale);
-    contentHeight_ = margin + previewHeight + gap + layoutHeight + gap + appearanceHeight + gap +
-        widgetHeight + gap + actionsHeight + margin;
+    const int pageHeight = std::max({layoutHeight, appearanceHeight, widgetHeight, actionsHeight});
+    const int tabHeight = static_cast<int>(32.0f * dpiScale);
+    const int naturalPreviewHeight = std::max(1, static_cast<int>(std::lround(
+        static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
+    const int availablePreviewHeight = height - margin * 2 - gap * 2 - tabHeight - pageHeight;
+    const int minimumPreviewHeight = static_cast<int>(160.0f * dpiScale);
+    const int previewHeight = std::min(naturalPreviewHeight,
+        std::max(minimumPreviewHeight, availablePreviewHeight));
+    const int previewWidth = std::min(contentWidth, std::max(1,
+        static_cast<int>(std::lround(static_cast<float>(previewHeight) * monitorAspect))));
+    contentHeight_ = margin + previewHeight + gap + tabHeight + gap + pageHeight + margin;
     scrollOffset_ = std::clamp(scrollOffset_, 0, std::max(0, contentHeight_ - height));
 
     SCROLLINFO scroll{sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS};
@@ -459,12 +487,20 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     SetScrollInfo(hwnd_, SB_VERT, &scroll, TRUE);
 
     int y = margin - scrollOffset_;
-    MoveWindow(preview_, margin, y, contentWidth, previewHeight, TRUE);
+    const auto place = [](HWND control, int x, int top, int controlWidth, int controlHeightValue) {
+        if (!control) return;
+        SetWindowPos(control, nullptr, x, top, std::max(1, controlWidth),
+            std::max(1, controlHeightValue), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+    };
+
+    place(preview_, margin + (contentWidth - previewWidth) / 2, y, previewWidth, previewHeight);
     y += previewHeight + gap;
+    place(settingsTabs_, margin, y, contentWidth, tabHeight);
+    y += tabHeight + gap;
 
     const auto placeSection = [&](HWND group, const std::vector<FieldControls>& fields,
         int top, int sectionSize, HWND action) {
-        MoveWindow(group, margin, top, contentWidth, sectionSize, TRUE);
+        place(group, margin, top, contentWidth, sectionSize);
         const int innerX = margin + static_cast<int>(14.0f * dpiScale);
         const int innerWidth = contentWidth - static_cast<int>(28.0f * dpiScale);
         const int columnGap = static_cast<int>(22.0f * dpiScale);
@@ -476,48 +512,57 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
             const int row = static_cast<int>(index / 2);
             const int x = innerX + column * (columnWidth + columnGap);
             const int fieldY = firstY + row * rowHeight;
-            MoveWindow(fields[index].label, x, fieldY + static_cast<int>(5.0f * dpiScale),
-                labelWidth, controlHeight, TRUE);
+            place(fields[index].label, x, fieldY + static_cast<int>(5.0f * dpiScale),
+                labelWidth, controlHeight);
             const int valueX = x + labelWidth;
             const int valueWidth = std::max(1, columnWidth - labelWidth);
             wchar_t className[24]{};
             GetClassNameW(fields[index].control, className, static_cast<int>(std::size(className)));
             const int dropHeight = wcscmp(className, L"ComboBox") == 0
                 ? static_cast<int>(220.0f * dpiScale) : controlHeight;
-            MoveWindow(fields[index].control, valueX, fieldY, valueWidth, dropHeight, TRUE);
-            if (fields[index].control == widgetValue_) {
-                MoveWindow(widgetChoice_, valueX, fieldY, valueWidth,
-                    static_cast<int>(220.0f * dpiScale), TRUE);
-                MoveWindow(widgetCheck_, valueX, fieldY, valueWidth, controlHeight, TRUE);
-                MoveWindow(browse_, valueX, fieldY + controlHeight + 2, valueWidth, controlHeight, TRUE);
+            const auto widgetSetting = std::find_if(widgetSettingControls_.begin(),
+                widgetSettingControls_.end(), [&](const WidgetSettingControls& item) {
+                    return item.editor == fields[index].control;
+                });
+            if (widgetSetting != widgetSettingControls_.end() && widgetSetting->browse) {
+                const int browseGap = static_cast<int>(8.0f * dpiScale);
+                const int browseWidth = static_cast<int>(88.0f * dpiScale);
+                place(fields[index].control, valueX, fieldY,
+                    valueWidth - browseWidth - browseGap, controlHeight);
+                place(widgetSetting->browse, valueX + valueWidth - browseWidth,
+                    fieldY, browseWidth, controlHeight);
+            } else {
+                place(fields[index].control, valueX, fieldY, valueWidth, dropHeight);
             }
         }
         if (action) {
-            MoveWindow(action, innerX,
+            place(action, innerX,
                 top + sectionSize - controlHeight - static_cast<int>(10.0f * dpiScale),
-                static_cast<int>(220.0f * dpiScale), controlHeight, TRUE);
+                static_cast<int>(220.0f * dpiScale), controlHeight);
         }
     };
 
-    placeSection(layoutSection_, layoutFields_, y, layoutHeight, applyUniversal_);
-    y += layoutHeight + gap;
-    placeSection(appearanceSection_, appearanceFields_, y, appearanceHeight, nullptr);
-    y += appearanceHeight + gap;
-    placeSection(widgetSection_, widgetFields_, y, widgetHeight, applyWidget_);
-    y += widgetHeight + gap;
+    placeSection(layoutSection_, layoutFields_, y, pageHeight, applyUniversal_);
+    placeSection(appearanceSection_, appearanceFields_, y, pageHeight, nullptr);
+    placeSection(widgetSection_, widgetFields_, y, pageHeight, nullptr);
+    place(widgetEmpty_, margin + static_cast<int>(14.0f * dpiScale),
+        y + static_cast<int>(30.0f * dpiScale),
+        contentWidth - static_cast<int>(28.0f * dpiScale), controlHeight);
 
-    MoveWindow(actionsSection_, margin, y, contentWidth, actionsHeight, TRUE);
+    place(actionsSection_, margin, y, contentWidth, pageHeight);
     const int actionX = margin + gap;
     const int actionY = y + static_cast<int>(28.0f * dpiScale);
     const int buttonWidth = static_cast<int>(120.0f * dpiScale);
-    MoveWindow(openLibraryButton_, actionX, actionY, buttonWidth, controlHeight, TRUE);
-    MoveWindow(duplicate_, actionX + buttonWidth + gap, actionY, buttonWidth, controlHeight, TRUE);
-    MoveWindow(delete_, actionX + (buttonWidth + gap) * 2, actionY, buttonWidth, controlHeight, TRUE);
+    place(openLibraryButton_, actionX, actionY, buttonWidth, controlHeight);
+    place(duplicate_, actionX + buttonWidth + gap, actionY, buttonWidth, controlHeight);
+    place(delete_, actionX + (buttonWidth + gap) * 2, actionY, buttonWidth, controlHeight);
     const int alignY = actionY + rowHeight;
-    MoveWindow(alignment_, actionX, alignY, static_cast<int>(250.0f * dpiScale),
-        static_cast<int>(220.0f * dpiScale), TRUE);
-    MoveWindow(applyAlignment_, actionX + static_cast<int>(264.0f * dpiScale), alignY,
-        static_cast<int>(140.0f * dpiScale), controlHeight, TRUE);
+    place(alignment_, actionX, alignY, static_cast<int>(250.0f * dpiScale),
+        static_cast<int>(220.0f * dpiScale));
+    place(applyAlignment_, actionX + static_cast<int>(264.0f * dpiScale), alignY,
+        static_cast<int>(140.0f * dpiScale), controlHeight);
+    RedrawWindow(hwnd_, nullptr, nullptr,
+        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 void WidgetStudioWindow::UpdatePreviewMetrics() {
@@ -604,13 +649,16 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     EnableWindow(sizeA_, single && resizable);
     EnableWindow(sizeB_, single && resizable);
     EnableWindow(duplicate_, duplicatable);
+    EnableWindow(delete_, hasWidget);
+    EnableWindow(applyUniversal_, hasWidget);
     EnableWindow(alignment_, freeSelectionCount >= 2);
-    EnableWindow(widgetSetting_, configurable);
-    EnableWindow(applyWidget_, configurable);
+    EnableWindow(applyAlignment_, freeSelectionCount >= 2);
+    RebuildWidgetSettings(widget);
+    for (const WidgetSettingControls& controls : widgetSettingControls_) {
+        EnableWindow(controls.editor, configurable);
+        if (controls.browse) EnableWindow(controls.browse, configurable);
+    }
     if (!widget) {
-        SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
-        ShowWindow(widgetValue_, SW_HIDE); ShowWindow(widgetChoice_, SW_HIDE);
-        ShowWindow(widgetCheck_, SW_HIDE); ShowWindow(browse_, SW_HIDE);
         updatingControls_ = false;
         return;
     }
@@ -631,11 +679,7 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     SendMessageW(border_, BM_SETCHECK, widget->appearance.borderEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
     SendMessageW(shadow_, BM_SETCHECK, widget->appearance.shadowEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
     UpdateLayoutSettingValues();
-    SendMessageW(widgetSetting_, CB_RESETCONTENT, 0, 0);
-    for (const auto& definition : widget->content->Settings())
-        SendMessageW(widgetSetting_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(definition.displayName.c_str()));
-    if (!widget->content->Settings().empty()) SendMessageW(widgetSetting_, CB_SETCURSEL, 0, 0);
-    UpdateWidgetSettingValue();
+    UpdateWidgetSettingValues();
     updatingControls_ = false;
 }
 
@@ -644,6 +688,16 @@ void WidgetStudioWindow::UpdateLayoutSettingValues() {
     if (!widget || !grid_) return;
     const LayoutMode requested = SendMessageW(layoutMode_, CB_GETCURSEL, 0, 0) == 1
         ? LayoutMode::Free : LayoutMode::Grid;
+    if (layoutFields_.size() >= 6) {
+        SetWindowTextW(layoutFields_[2].label,
+            requested == LayoutMode::Free ? L"X position (DIP)" : L"Grid column");
+        SetWindowTextW(layoutFields_[3].label,
+            requested == LayoutMode::Free ? L"Y position (DIP)" : L"Grid row");
+        SetWindowTextW(layoutFields_[4].label,
+            requested == LayoutMode::Free ? L"Width (DIP)" : L"Column span");
+        SetWindowTextW(layoutFields_[5].label,
+            requested == LayoutMode::Free ? L"Height (DIP)" : L"Row span");
+    }
     if (requested == LayoutMode::Free) {
         const RectF rect = OuterLayout::RectFor(*widget, *grid_, layoutMetrics_);
         SetNumber(positionA_, rect.x);
@@ -677,41 +731,95 @@ void WidgetStudioWindow::UpdateLayoutSettingValues() {
     SetNumber(sizeB_, placement.rowSpan);
 }
 
-void WidgetStudioWindow::UpdateWidgetSettingValue() {
-    WidgetInstance* widget = PrimaryWidget();
-    if (!widget) return;
-    const LRESULT index = SendMessageW(widgetSetting_, CB_GETCURSEL, 0, 0);
-    const auto settings = widget->content->Settings();
-    if (index == CB_ERR || static_cast<std::size_t>(index) >= settings.size()) {
-        SetWindowTextW(widgetValue_, L"");
-        ShowWindow(widgetValue_, SW_HIDE); ShowWindow(widgetChoice_, SW_HIDE);
-        ShowWindow(widgetCheck_, SW_HIDE); ShowWindow(browse_, SW_HIDE);
-        return;
+void WidgetStudioWindow::RebuildWidgetSettings(const WidgetInstance* widget) {
+    const std::string typeId = widget ? widget->typeId : std::string{};
+    const auto settings = widget && widget->content
+        ? widget->content->Settings() : std::span<const WidgetSettingDefinition>{};
+    if (typeId == widgetSettingsTypeId_ && settings.size() == widgetSettingControls_.size()) return;
+
+    for (const WidgetSettingControls& controls : widgetSettingControls_) {
+        if (controls.label) DestroyWindow(controls.label);
+        if (controls.editor) DestroyWindow(controls.editor);
+        if (controls.browse) DestroyWindow(controls.browse);
     }
-    const WidgetSettingDefinition& definition = settings[static_cast<std::size_t>(index)];
-    const auto state = widget->content->SaveState();
-    const auto value = state.find(definition.key);
-    const std::wstring current = value == state.end() ? L"" : value->second;
-    const bool isChoice = definition.kind == WidgetSettingKind::Choice;
-    const bool isBoolean = definition.kind == WidgetSettingKind::Boolean;
-    ShowWindow(widgetValue_, !isChoice && !isBoolean ? SW_SHOW : SW_HIDE);
-    ShowWindow(widgetChoice_, isChoice ? SW_SHOW : SW_HIDE);
-    ShowWindow(widgetCheck_, isBoolean ? SW_SHOW : SW_HIDE);
-    ShowWindow(browse_, definition.kind == WidgetSettingKind::File ? SW_SHOW : SW_HIDE);
-    if (isChoice) {
-        SendMessageW(widgetChoice_, CB_RESETCONTENT, 0, 0);
-        int selected = 0;
-        for (std::size_t choice = 0; choice < definition.choices.size(); ++choice) {
-            SendMessageW(widgetChoice_, CB_ADDSTRING, 0,
-                reinterpret_cast<LPARAM>(definition.choices[choice].c_str()));
-            if (definition.choices[choice] == current) selected = static_cast<int>(choice);
+    widgetSettingControls_.clear();
+    widgetFields_.clear();
+    widgetSettingsTypeId_ = typeId;
+
+    for (std::size_t index = 0; index < settings.size(); ++index) {
+        const WidgetSettingDefinition& definition = settings[index];
+        HWND label = AddControl(hwnd_, instance_, L"STATIC", definition.displayName.c_str(), SS_LEFT);
+        HWND editor = nullptr;
+        const int controlIndex = static_cast<int>(widgetSettingControls_.size());
+        const int id = kWidgetSettingBase + controlIndex;
+        if (definition.kind == WidgetSettingKind::Boolean) {
+            editor = AddControl(hwnd_, instance_, L"BUTTON", L"Enabled",
+                BS_AUTOCHECKBOX | WS_TABSTOP, id);
+        } else if (definition.kind == WidgetSettingKind::Choice) {
+            editor = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+                CBS_DROPDOWNLIST | WS_TABSTOP, id);
+            for (std::size_t choice = 0; choice < definition.choices.size(); ++choice) {
+                const std::wstring& display = choice < definition.choiceDisplayNames.size()
+                    ? definition.choiceDisplayNames[choice] : definition.choices[choice];
+                SendMessageW(editor, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(display.c_str()));
+            }
+        } else {
+            editor = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+                ES_AUTOHSCROLL | WS_TABSTOP, id, WS_EX_CLIENTEDGE);
         }
-        SendMessageW(widgetChoice_, CB_SETCURSEL, selected, 0);
-    } else if (isBoolean) {
-        const bool checked = current == L"true" || current == L"1";
-        SendMessageW(widgetCheck_, BM_SETCHECK, checked ? BST_CHECKED : BST_UNCHECKED, 0);
-    } else {
-        SetWindowTextW(widgetValue_, current.c_str());
+        HWND browse = definition.kind == WidgetSettingKind::File
+            ? AddControl(hwnd_, instance_, L"BUTTON", L"Browse...", BS_PUSHBUTTON | WS_TABSTOP,
+                kWidgetBrowseBase + controlIndex)
+            : nullptr;
+        if (!label || !editor || (definition.kind == WidgetSettingKind::File && !browse)) {
+            if (label) DestroyWindow(label);
+            if (editor) DestroyWindow(editor);
+            if (browse) DestroyWindow(browse);
+            continue;
+        }
+        widgetSettingControls_.push_back({definition, label, editor, browse});
+        widgetFields_.push_back({label, editor});
+    }
+
+    SetWindowTextW(widgetEmpty_, widget
+        ? L"This widget has no content settings."
+        : L"Select a widget in the preview to edit its content.");
+    std::wstring heading = L"Widget content";
+    if (widget && scene_) {
+        if (const WidgetDescriptor* descriptor = scene_->DescriptorFor(widget->instanceId)) {
+            heading = descriptor->displayName + L" content";
+        }
+    }
+    SetWindowTextW(widgetSection_, heading.c_str());
+    UpdateSettingsPageVisibility();
+    if (hwnd_) {
+        RECT client{};
+        GetClientRect(hwnd_, &client);
+        LayoutControls(client.right - client.left, client.bottom - client.top);
+    }
+}
+
+void WidgetStudioWindow::UpdateWidgetSettingValues() {
+    WidgetInstance* widget = PrimaryWidget();
+    if (!widget || !widget->content) return;
+    const auto state = widget->content->SaveState();
+    for (const WidgetSettingControls& controls : widgetSettingControls_) {
+        const WidgetSettingDefinition& definition = controls.definition;
+        const auto value = state.find(definition.key);
+        const std::wstring current = value == state.end() ? L"" : value->second;
+        if (definition.kind == WidgetSettingKind::Choice) {
+            int selected = 0;
+            for (std::size_t choice = 0; choice < definition.choices.size(); ++choice) {
+                if (definition.choices[choice] == current) selected = static_cast<int>(choice);
+            }
+            SendMessageW(controls.editor, CB_SETCURSEL, selected, 0);
+        } else if (definition.kind == WidgetSettingKind::Boolean) {
+            const bool checked = current == L"true" || current == L"1";
+            SendMessageW(controls.editor, BM_SETCHECK,
+                checked ? BST_CHECKED : BST_UNCHECKED, 0);
+        } else {
+            SetWindowTextW(controls.editor, current.c_str());
+        }
     }
 }
 
@@ -835,27 +943,26 @@ void WidgetStudioWindow::ApplyAlignment() {
         NotifySceneChanged();
 }
 
-void WidgetStudioWindow::ApplyWidgetSetting() {
+void WidgetStudioWindow::ApplyWidgetSetting(std::size_t index) {
     if (updatingControls_) return;
     WidgetInstance* widget = PrimaryWidget();
-    if (!widget) return;
-    const LRESULT index = SendMessageW(widgetSetting_, CB_GETCURSEL, 0, 0);
-    const auto settings = widget->content->Settings();
-    if (index == CB_ERR || static_cast<std::size_t>(index) >= settings.size()) return;
-    const WidgetSettingDefinition& definition = settings[static_cast<std::size_t>(index)];
+    if (!widget || index >= widgetSettingControls_.size()) return;
+    const WidgetSettingControls& controls = widgetSettingControls_[index];
+    const WidgetSettingDefinition& definition = controls.definition;
     WidgetState state = widget->content->SaveState();
     std::wstring value;
     if (definition.kind == WidgetSettingKind::Boolean) {
-        value = SendMessageW(widgetCheck_, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"true" : L"false";
+        value = SendMessageW(controls.editor, BM_GETCHECK, 0, 0) == BST_CHECKED
+            ? L"true" : L"false";
     } else if (definition.kind == WidgetSettingKind::Choice) {
-        const LRESULT choice = SendMessageW(widgetChoice_, CB_GETCURSEL, 0, 0);
+        const LRESULT choice = SendMessageW(controls.editor, CB_GETCURSEL, 0, 0);
         if (choice == CB_ERR || static_cast<std::size_t>(choice) >= definition.choices.size()) return;
         value = definition.choices[static_cast<std::size_t>(choice)];
     } else if (definition.kind == WidgetSettingKind::Number) {
         const auto current = state.find(definition.key);
         const double fallback = current == state.end()
             ? definition.minimum : ParseNumber(current->second, definition.minimum);
-        double number = ReadNumber(widgetValue_, fallback);
+        double number = ReadNumber(controls.editor, fallback);
         if (definition.maximum >= definition.minimum) {
             number = std::clamp(number, definition.minimum, definition.maximum);
             if (definition.step > 0.0 && std::isfinite(definition.step)) {
@@ -864,17 +971,19 @@ void WidgetStudioWindow::ApplyWidgetSetting() {
                 number = std::clamp(number, definition.minimum, definition.maximum);
             }
         }
-        SetNumber(widgetValue_, number);
-        value = ReadText(widgetValue_);
+        SetNumber(controls.editor, number);
+        value = ReadText(controls.editor);
     } else {
-        value = ReadText(widgetValue_);
+        value = ReadText(controls.editor);
     }
     state[definition.key] = std::move(value);
     widget->content->RestoreState(state);
     NotifySceneChanged();
 }
 
-void WidgetStudioWindow::ChooseWidgetFile() {
+void WidgetStudioWindow::ChooseWidgetFile(std::size_t index) {
+    if (index >= widgetSettingControls_.size() ||
+        widgetSettingControls_[index].definition.kind != WidgetSettingKind::File) return;
     Microsoft::WRL::ComPtr<IFileOpenDialog> dialog;
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER,
             IID_PPV_ARGS(dialog.GetAddressOf())))) return;
@@ -891,8 +1000,8 @@ void WidgetStudioWindow::ChooseWidgetFile() {
     CoTaskMemFree(path);
     if (!imported) { MessageBoxW(hwnd_, error.c_str(), L"Widget Studio", MB_OK | MB_ICONWARNING); return; }
     const std::wstring reference = assetLibrary_->ReferenceFor(*imported);
-    SetWindowTextW(widgetValue_, reference.c_str());
-    ApplyWidgetSetting();
+    SetWindowTextW(widgetSettingControls_[index].editor, reference.c_str());
+    ApplyWidgetSetting(index);
 }
 
 void WidgetStudioWindow::NotifySceneChanged() {
@@ -1008,11 +1117,27 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         return 0;
     }
     case WM_COMMAND:
+        if (LOWORD(wParam) >= kWidgetSettingBase &&
+            LOWORD(wParam) < kWidgetSettingBase + static_cast<int>(widgetSettingControls_.size())) {
+            const std::size_t index = static_cast<std::size_t>(LOWORD(wParam) - kWidgetSettingBase);
+            const WidgetSettingKind kind = widgetSettingControls_[index].definition.kind;
+            if ((kind == WidgetSettingKind::Boolean && HIWORD(wParam) == BN_CLICKED) ||
+                (kind == WidgetSettingKind::Choice && HIWORD(wParam) == CBN_SELCHANGE) ||
+                (kind != WidgetSettingKind::Boolean && kind != WidgetSettingKind::Choice &&
+                    HIWORD(wParam) == EN_KILLFOCUS)) {
+                ApplyWidgetSetting(index);
+                return 0;
+            }
+        }
+        if (LOWORD(wParam) >= kWidgetBrowseBase &&
+            LOWORD(wParam) < kWidgetBrowseBase + static_cast<int>(widgetSettingControls_.size()) &&
+            HIWORD(wParam) == BN_CLICKED) {
+            ChooseWidgetFile(static_cast<std::size_t>(LOWORD(wParam) - kWidgetBrowseBase));
+            return 0;
+        }
         switch (LOWORD(wParam)) {
         case kApplyUniversal: ApplyUniversalSettings(); return 0;
         case kApplyAlignment: ApplyAlignment(); return 0;
-        case kApplyWidget: ApplyWidgetSetting(); return 0;
-        case kBrowse: ChooseWidgetFile(); return 0;
         case kOpenLibrary: if (openLibrary_) openLibrary_(); return 0;
         case kDuplicateWidget: {
             const auto primary = scene_->PrimarySelection();
@@ -1049,21 +1174,23 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         case kSizeB:
             if (HIWORD(wParam) == EN_KILLFOCUS) { ApplyUniversalSettings(); return 0; }
             break;
-        case kSettingCombo:
-            if (HIWORD(wParam) == CBN_SELCHANGE) { UpdateWidgetSettingValue(); return 0; }
-            break;
-        case kWidgetChoice:
-            if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyWidgetSetting(); return 0; }
-            break;
-        case kWidgetCheck:
-            if (HIWORD(wParam) == BN_CLICKED) { ApplyWidgetSetting(); return 0; }
-            break;
-        case kWidgetValue:
-            if (HIWORD(wParam) == EN_KILLFOCUS) { ApplyWidgetSetting(); return 0; }
-            break;
         default: break;
         }
         break;
+    case WM_NOTIFY: {
+        const auto* notification = reinterpret_cast<const NMHDR*>(lParam);
+        if (notification && notification->hwndFrom == settingsTabs_ &&
+            notification->code == TCN_SELCHANGE) {
+            const int selected = TabCtrl_GetCurSel(settingsTabs_);
+            activeSettingsPage_ = std::clamp(selected, 0, 3);
+            UpdateSettingsPageVisibility();
+            RECT client{};
+            GetClientRect(hwnd_, &client);
+            LayoutControls(client.right - client.left, client.bottom - client.top);
+            return 0;
+        }
+        break;
+    }
     case WM_KEYDOWN:
         if (HandleEditKey(wParam)) return 0;
         break;

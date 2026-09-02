@@ -32,6 +32,7 @@ struct WidgetSettingDefinition {
     double minimum{};
     double maximum{};
     double step{};
+    std::vector<std::wstring> choiceDisplayNames;
 };
 
 class IWidget {

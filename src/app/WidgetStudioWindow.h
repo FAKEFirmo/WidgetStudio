@@ -51,12 +51,14 @@ private:
     void PaintPreview();
     void UpdateControlsFromSelection();
     void UpdateLayoutSettingValues();
-    void UpdateWidgetSettingValue();
+    void RebuildWidgetSettings(const WidgetInstance* widget);
+    void UpdateWidgetSettingValues();
+    void UpdateSettingsPageVisibility();
     void ApplyUniversalSettings();
     void ApplyRequestedLayoutMode();
     void ApplyAlignment();
-    void ApplyWidgetSetting();
-    void ChooseWidgetFile();
+    void ApplyWidgetSetting(std::size_t index);
+    void ChooseWidgetFile(std::size_t index);
     void NotifySceneChanged();
     void EndPreviewDrag();
     bool HandleEditKey(WPARAM key);
@@ -67,6 +69,7 @@ private:
     HINSTANCE instance_{};
     HWND hwnd_{};
     HWND preview_{};
+    HWND settingsTabs_{};
     HWND monitorChoice_{};
     HWND layoutMode_{};
     HWND locked_{};
@@ -86,12 +89,7 @@ private:
     HWND sizeB_{};
     HWND duplicate_{};
     HWND alignment_{};
-    HWND widgetSetting_{};
-    HWND widgetValue_{};
-    HWND widgetChoice_{};
-    HWND widgetCheck_{};
-    HWND browse_{};
-    HWND applyWidget_{};
+    HWND widgetEmpty_{};
     HWND layoutSection_{};
     HWND appearanceSection_{};
     HWND widgetSection_{};
@@ -104,9 +102,17 @@ private:
         HWND label{};
         HWND control{};
     };
+    struct WidgetSettingControls {
+        WidgetSettingDefinition definition;
+        HWND label{};
+        HWND editor{};
+        HWND browse{};
+    };
     std::vector<FieldControls> layoutFields_;
     std::vector<FieldControls> appearanceFields_;
     std::vector<FieldControls> widgetFields_;
+    std::vector<WidgetSettingControls> widgetSettingControls_;
+    std::string widgetSettingsTypeId_;
     WidgetScene* scene_{};
     GridLayout* grid_{};
     GridMetrics layoutMetrics_{};
@@ -123,6 +129,7 @@ private:
     std::function<void()> openLibrary_;
     int scrollOffset_{};
     int contentHeight_{};
+    int activeSettingsPage_{};
     bool updatingControls_{false};
     HBRUSH backgroundBrush_{};
     HBRUSH fieldBrush_{};

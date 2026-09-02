@@ -539,7 +539,11 @@ void TestClockStateAndScheduling() {
     const auto next = clock.NextUpdateTime();
     Require(next.has_value() && *next > now && *next - now <= std::chrono::seconds(1),
         "seconds mode should schedule the next displayed-second boundary");
-    Require(clock.Settings().size() == 6, "clock should expose generic setting definitions");
+    const auto settings = clock.Settings();
+    Require(settings.size() == 6, "clock should expose generic setting definitions");
+    Require(settings[4].choices.size() == settings[4].choiceDisplayNames.size() &&
+        settings[4].choiceDisplayNames[0] == L"Long date",
+        "choice settings should expose user-facing labels separately from persisted values");
 
     ws::WidgetRegistry registry;
     Require(registry.Register(ws::ClockWidget::Descriptor()), "clock descriptor should register for restore test");
