@@ -245,6 +245,22 @@ try {
             throw "Widget Studio does not expose Clock setting control $settingId directly."
         }
     }
+    $navigationBeforeScroll = [WidgetStudioSmokeNative+Rect]::new()
+    $navigationAfterScroll = [WidgetStudioSmokeNative+Rect]::new()
+    $navigationAfterReturn = [WidgetStudioSmokeNative+Rect]::new()
+    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationBeforeScroll)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $studio, 0x0115, [IntPtr]3, [IntPtr]::Zero) # WM_VSCROLL / SB_PAGEDOWN
+    Start-Sleep -Milliseconds 50
+    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationAfterScroll)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $studio, 0x0115, [IntPtr]6, [IntPtr]::Zero) # WM_VSCROLL / SB_TOP
+    Start-Sleep -Milliseconds 50
+    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationAfterReturn)
+    if ($navigationAfterScroll.Top -ge $navigationBeforeScroll.Top -or
+        [Math]::Abs($navigationAfterReturn.Top - $navigationBeforeScroll.Top) -gt 1) {
+        throw 'Widget Studio child controls did not complete a consistent scroll round trip.'
+    }
     [void][WidgetStudioSmokeNative]::SendMessage(
         $widgetPageButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
     Start-Sleep -Milliseconds 50
@@ -385,6 +401,7 @@ try {
         passiveHitTestingPassed = $true
         studioPreviewAboveSettings = $true
         studioPreviewUsesFullMonitorAspect = $true
+        settingsScrollRoundTripPassed = $true
         universalSettingsPassed = $true
         widgetSpecificSettingsPassed = $true
         duplicateStatePassed = $true

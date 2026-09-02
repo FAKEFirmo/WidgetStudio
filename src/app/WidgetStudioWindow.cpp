@@ -550,11 +550,27 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     scroll.nPos = scrollOffset_;
     SetScrollInfo(hwnd_, SB_VERT, &scroll, TRUE);
 
+    struct PendingPlacement {
+        HWND control{};
+        int x{};
+        int y{};
+        int width{};
+        int height{};
+    };
+    std::vector<PendingPlacement> placements;
+    placements.reserve(48 + widgetSettingControls_.size() * 2);
+
     int y = margin - scrollOffset_;
-    const auto place = [](HWND control, int x, int top, int controlWidth, int controlHeightValue) {
+    const auto place = [&placements](HWND control, int x, int top,
+        int controlWidth, int controlHeightValue) {
         if (!control) return;
-        SetWindowPos(control, nullptr, x, top, std::max(1, controlWidth),
-            std::max(1, controlHeightValue), SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOREDRAW);
+        placements.push_back(PendingPlacement{
+            control,
+            x,
+            top,
+            std::max(1, controlWidth),
+            std::max(1, controlHeightValue),
+        });
     };
 
     place(preview_, margin + (contentWidth - previewWidth) / 2, y, previewWidth, previewHeight);
@@ -633,8 +649,28 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
         static_cast<int>(220.0f * dpiScale));
     place(applyAlignment_, actionX + static_cast<int>(264.0f * dpiScale), alignY,
         static_cast<int>(140.0f * dpiScale), controlHeight);
+
+    // Reposition the complete child-window set as one operation. Copying old
+    // child pixels while controls cross the viewport boundary leaves trails on
+    // some Windows 10/DWM combinations, so every moved child repaints instead.
+    constexpr UINT placementFlags = SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOCOPYBITS;
+    bool placed = false;
+    if (HDWP deferred = BeginDeferWindowPos(static_cast<int>(placements.size()))) {
+        for (const PendingPlacement& placement : placements) {
+            deferred = DeferWindowPos(deferred, placement.control, nullptr,
+                placement.x, placement.y, placement.width, placement.height, placementFlags);
+            if (!deferred) break;
+        }
+        if (deferred) placed = EndDeferWindowPos(deferred) != FALSE;
+    }
+    if (!placed) {
+        for (const PendingPlacement& placement : placements) {
+            SetWindowPos(placement.control, nullptr,
+                placement.x, placement.y, placement.width, placement.height, placementFlags);
+        }
+    }
     RedrawWindow(hwnd_, nullptr, nullptr,
-        RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
 }
 
 void WidgetStudioWindow::UpdatePreviewMetrics() {
