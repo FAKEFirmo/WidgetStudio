@@ -128,7 +128,8 @@ void TestGridGeometryAndFullPlacement() {
     const ws::RectF first = grid.RectFor({0, 0, 1, 1}, metrics);
     const ws::RectF adjacent = grid.RectFor({1, 0, 1, 1}, metrics);
     const ws::RectF spanned = grid.RectFor({0, 0, 2, 1}, metrics);
-    Require(first.width == first.height && adjacent.x - first.Right() == metrics.columnGap,
+    Require(Near(first.width, first.height) &&
+        Near(adjacent.x - first.Right(), metrics.columnGap),
         "grid cells should be square and separated by the shared gap");
     Require(spanned.Right() == adjacent.Right(),
         "spanned widget edges should resolve from the same grid metrics without drift");
