@@ -4,7 +4,7 @@ WidgetStudio is a local-first Windows 11 desktop widget system built with C++20,
 
 ## Version codes
 
-WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; major alpha improvements increment the second number, while bug fixes, tweaks, and small improvements add or increment the third number. The current build is `V0.1.4`.
+WidgetStudio alpha builds use `V0.<major>[.<patch>]`. The baseline is `V0.0`; major alpha improvements increment the second number, while bug fixes, tweaks, and small improvements add or increment the third number. The current build is `V0.2`.
 
 ## Features
 

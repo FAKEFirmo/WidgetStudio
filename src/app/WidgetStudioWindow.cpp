@@ -231,7 +231,7 @@ bool WidgetStudioWindow::Open(HWND owner, HINSTANCE instance, WidgetScene& scene
     const float initialScale = static_cast<float>(std::max(96u, GetDpiForSystem())) / 96.0f;
     const std::wstring title = std::wstring(L"Widget Studio ") + kDisplayVersion;
     hwnd_ = CreateWindowExW(WS_EX_APPWINDOW, kStudioClass, title.c_str(),
-        WS_OVERLAPPEDWINDOW | WS_VSCROLL | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
+        WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN, CW_USEDEFAULT, CW_USEDEFAULT,
         static_cast<int>(1120.0f * initialScale), static_cast<int>(820.0f * initialScale),
         owner, nullptr, instance_, this);
     if (!hwnd_ || !preview_) { Close(); return false; }
@@ -299,8 +299,6 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     widgetFields_.clear();
     widgetSettingControls_.clear();
     widgetSettingsTypeId_.clear();
-    scrollOffset_ = 0;
-    contentHeight_ = 0;
     activeSettingsPage_ = 0;
     updatingControls_ = false;
     previewDrag_.reset();
@@ -527,28 +525,19 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
             (static_cast<int>((fields + 1) / 2) + extraRows) * rowHeight +
             static_cast<int>(12.0f * dpiScale);
     };
-    const int layoutHeight = sectionHeight(layoutFields_.size(), 1);
-    const int appearanceHeight = sectionHeight(appearanceFields_.size(), 1);
+    const int layoutHeight = sectionHeight(layoutFields_.size(), 0);
+    const int appearanceHeight = sectionHeight(appearanceFields_.size(), 0);
     const int widgetHeight = sectionHeight(std::max<std::size_t>(1, widgetFields_.size()), 0);
     const int actionsHeight = static_cast<int>(112.0f * dpiScale);
     const int pageHeight = std::max({layoutHeight, appearanceHeight, widgetHeight, actionsHeight});
     const int navigationHeight = static_cast<int>(34.0f * dpiScale);
     const int naturalPreviewHeight = std::max(1, static_cast<int>(std::lround(
         static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
-    // Preserve the monitor aspect ratio while using the full workspace width.
-    // The settings surface already scrolls, so shrinking the preview to fit all
-    // controls only created large, visually distracting side gutters.
-    const int previewWidth = contentWidth;
-    const int previewHeight = naturalPreviewHeight;
-    contentHeight_ = margin + previewHeight + gap + navigationHeight + gap + pageHeight + margin;
-    scrollOffset_ = std::clamp(scrollOffset_, 0, std::max(0, contentHeight_ - height));
-
-    SCROLLINFO scroll{sizeof(scroll), SIF_RANGE | SIF_PAGE | SIF_POS};
-    scroll.nMin = 0;
-    scroll.nMax = std::max(0, contentHeight_ - 1);
-    scroll.nPage = static_cast<UINT>(std::max(1, height));
-    scroll.nPos = scrollOffset_;
-    SetScrollInfo(hwnd_, SB_VERT, &scroll, TRUE);
+    const int availablePreviewHeight = std::max(1,
+        height - margin * 2 - gap * 2 - navigationHeight - pageHeight);
+    const int previewHeight = std::min(naturalPreviewHeight, availablePreviewHeight);
+    const int previewWidth = std::min(contentWidth, std::max(1,
+        static_cast<int>(std::lround(static_cast<float>(previewHeight) * monitorAspect))));
 
     struct PendingPlacement {
         HWND control{};
@@ -560,7 +549,7 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
     std::vector<PendingPlacement> placements;
     placements.reserve(48 + widgetSettingControls_.size() * 2);
 
-    int y = margin - scrollOffset_;
+    int y = margin;
     const auto place = [&placements](HWND control, int x, int top,
         int controlWidth, int controlHeightValue) {
         if (!control) return;
@@ -624,9 +613,14 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
             }
         }
         if (action) {
-            place(action, innerX,
-                top + sectionSize - controlHeight - static_cast<int>(10.0f * dpiScale),
-                static_cast<int>(220.0f * dpiScale), controlHeight);
+            const int actionColumn = fields.size() % 2 == 1 ? 1 : 0;
+            const int actionRow = fields.size() % 2 == 1
+                ? static_cast<int>(fields.size() / 2)
+                : static_cast<int>((fields.size() + 1) / 2);
+            place(action,
+                innerX + actionColumn * (columnWidth + columnGap),
+                firstY + actionRow * rowHeight,
+                columnWidth, controlHeight);
         }
     };
 
@@ -1169,38 +1163,6 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         return 0;
     }
     case WM_SIZE: LayoutControls(LOWORD(lParam), HIWORD(lParam)); UpdatePreviewMetrics(); return 0;
-    case WM_VSCROLL: {
-        SCROLLINFO scroll{sizeof(scroll), SIF_ALL};
-        GetScrollInfo(hwnd_, SB_VERT, &scroll);
-        int requested = scrollOffset_;
-        switch (LOWORD(wParam)) {
-        case SB_LINEUP: requested -= 38; break;
-        case SB_LINEDOWN: requested += 38; break;
-        case SB_PAGEUP: requested -= static_cast<int>(scroll.nPage); break;
-        case SB_PAGEDOWN: requested += static_cast<int>(scroll.nPage); break;
-        case SB_THUMBTRACK: requested = scroll.nTrackPos; break;
-        case SB_TOP: requested = 0; break;
-        case SB_BOTTOM: requested = scroll.nMax; break;
-        default: return 0;
-        }
-        RECT client{};
-        GetClientRect(hwnd_, &client);
-        const int clientHeight = static_cast<int>(client.bottom - client.top);
-        scrollOffset_ = std::clamp(requested, 0,
-            std::max(0, contentHeight_ - clientHeight));
-        LayoutControls(client.right - client.left, client.bottom - client.top);
-        return 0;
-    }
-    case WM_MOUSEWHEEL: {
-        RECT client{};
-        GetClientRect(hwnd_, &client);
-        const int clientHeight = static_cast<int>(client.bottom - client.top);
-        const int lines = GET_WHEEL_DELTA_WPARAM(wParam) / WHEEL_DELTA;
-        scrollOffset_ = std::clamp(scrollOffset_ - lines * 76, 0,
-            std::max(0, contentHeight_ - clientHeight));
-        LayoutControls(client.right - client.left, client.bottom - client.top);
-        return 0;
-    }
     case WM_ERASEBKGND: {
         RECT client{};
         GetClientRect(hwnd_, &client);

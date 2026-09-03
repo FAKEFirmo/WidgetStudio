@@ -128,8 +128,6 @@ private:
     std::function<void()> sceneChanged_;
     std::function<void()> selectionChanged_;
     std::function<void()> openLibrary_;
-    int scrollOffset_{};
-    int contentHeight_{};
     int activeSettingsPage_{};
     bool updatingControls_{false};
     HBRUSH backgroundBrush_{};

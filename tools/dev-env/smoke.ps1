@@ -245,21 +245,26 @@ try {
             throw "Widget Studio does not expose Clock setting control $settingId directly."
         }
     }
-    $navigationBeforeScroll = [WidgetStudioSmokeNative+Rect]::new()
-    $navigationAfterScroll = [WidgetStudioSmokeNative+Rect]::new()
-    $navigationAfterReturn = [WidgetStudioSmokeNative+Rect]::new()
-    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationBeforeScroll)
+    $studioBounds = [WidgetStudioSmokeNative+Rect]::new()
+    $navigationBeforeWheel = [WidgetStudioSmokeNative+Rect]::new()
+    $navigationAfterWheel = [WidgetStudioSmokeNative+Rect]::new()
+    [void][WidgetStudioSmokeNative]::GetWindowRect($studio, [ref]$studioBounds)
+    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationBeforeWheel)
     [void][WidgetStudioSmokeNative]::SendMessage(
-        $studio, 0x0115, [IntPtr]3, [IntPtr]::Zero) # WM_VSCROLL / SB_PAGEDOWN
+        $studio, 0x0115, [IntPtr]3, [IntPtr]::Zero) # Ignored WM_VSCROLL / SB_PAGEDOWN
     Start-Sleep -Milliseconds 50
-    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationAfterScroll)
-    [void][WidgetStudioSmokeNative]::SendMessage(
-        $studio, 0x0115, [IntPtr]6, [IntPtr]::Zero) # WM_VSCROLL / SB_TOP
-    Start-Sleep -Milliseconds 50
-    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationAfterReturn)
-    if ($navigationAfterScroll.Top -ge $navigationBeforeScroll.Top -or
-        [Math]::Abs($navigationAfterReturn.Top - $navigationBeforeScroll.Top) -gt 1) {
-        throw 'Widget Studio child controls did not complete a consistent scroll round trip.'
+    [void][WidgetStudioSmokeNative]::GetWindowRect($layoutPageButton, [ref]$navigationAfterWheel)
+    if ($navigationAfterWheel.Top -ne $navigationBeforeWheel.Top) {
+        throw 'Widget Studio unexpectedly moved controls in response to a scroll message.'
+    }
+    foreach ($control in @($layoutMode, $contentScale, $positionA, $positionB, $sizeA,
+            $sizeB, $applyUniversalButton, $layoutPageButton, $widgetPageButton)) {
+        $controlBounds = [WidgetStudioSmokeNative+Rect]::new()
+        if ([WidgetStudioSmokeNative]::IsWindowVisible($control) -and
+            [WidgetStudioSmokeNative]::GetWindowRect($control, [ref]$controlBounds) -and
+            ($controlBounds.Top -lt $studioBounds.Top -or $controlBounds.Bottom -gt $studioBounds.Bottom)) {
+            throw 'Widget Studio exposed a settings control outside its non-scrolling window.'
+        }
     }
     [void][WidgetStudioSmokeNative]::SendMessage(
         $widgetPageButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
@@ -401,7 +406,7 @@ try {
         passiveHitTestingPassed = $true
         studioPreviewAboveSettings = $true
         studioPreviewUsesFullMonitorAspect = $true
-        settingsScrollRoundTripPassed = $true
+        settingsFitWithoutScrolling = $true
         universalSettingsPassed = $true
         widgetSpecificSettingsPassed = $true
         duplicateStatePassed = $true
