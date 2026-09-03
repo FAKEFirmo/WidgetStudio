@@ -669,8 +669,16 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
                 placement.x, placement.y, placement.width, placement.height, placementFlags);
         }
     }
+    // Paint in two phases. WS_CLIPCHILDREN deliberately excludes the controls
+    // at their new positions while the parent erases every uncovered pixel,
+    // including their former positions. Only then repaint the visible controls.
     RedrawWindow(hwnd_, nullptr, nullptr,
-        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+        RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_NOCHILDREN | RDW_UPDATENOW);
+    for (const PendingPlacement& placement : placements) {
+        if (!IsWindowVisible(placement.control)) continue;
+        RedrawWindow(placement.control, nullptr, nullptr,
+            RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN | RDW_UPDATENOW);
+    }
 }
 
 void WidgetStudioWindow::UpdatePreviewMetrics() {
