@@ -38,6 +38,8 @@ public static class WidgetStudioSmokeNative {
     private static extern int GetClassName(IntPtr window, StringBuilder name, int capacity);
     [DllImport("user32.dll")]
     public static extern IntPtr SendMessage(IntPtr window, uint message, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    public static extern bool SetWindowText(IntPtr window, string text);
     [DllImport("user32.dll")]
     public static extern IntPtr GetDlgItem(IntPtr parent, int id);
     [DllImport("user32.dll")]
@@ -140,7 +142,7 @@ try {
     }
 
     $scene = Read-Scene $scenePath
-    if ($scene.schemaVersion -ne 1 -or @($scene.widgets).Count -lt 1) {
+    if ($scene.schemaVersion -ne 2 -or @($scene.widgets).Count -lt 1) {
         throw 'WidgetStudio created an invalid or empty first-run scene.'
     }
     if (@($scene.widgets | Where-Object { $_.typeId -eq 'clock' }).Count -lt 1) {
@@ -227,20 +229,30 @@ try {
     $opacity = [WidgetStudioSmokeNative]::GetDlgItem($studio, 214)
     $blur = [WidgetStudioSmokeNative]::GetDlgItem($studio, 215)
     $radius = [WidgetStudioSmokeNative]::GetDlgItem($studio, 216)
+    $generalFont = [WidgetStudioSmokeNative]::GetDlgItem($studio, 242)
+    $generalTint = [WidgetStudioSmokeNative]::GetDlgItem($studio, 243)
+    $useGeneralAppearance = [WidgetStudioSmokeNative]::GetDlgItem($studio, 250)
+    $fontFamily = [WidgetStudioSmokeNative]::GetDlgItem($studio, 251)
+    $tint = [WidgetStudioSmokeNative]::GetDlgItem($studio, 252)
+    $applyGeneral = [WidgetStudioSmokeNative]::GetDlgItem($studio, 253)
     $positionA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 217)
     $positionB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 218)
     $sizeA = [WidgetStudioSmokeNative]::GetDlgItem($studio, 219)
     $sizeB = [WidgetStudioSmokeNative]::GetDlgItem($studio, 220)
     $widgetCheck = [WidgetStudioSmokeNative]::GetDlgItem($studio, 400)
-    $layoutPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 229)
-    $widgetPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 231)
+    $generalPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 229)
+    $layoutPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 230)
+    $appearancePageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 231)
+    $widgetPageButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 232)
     $applyUniversalButton = [WidgetStudioSmokeNative]::GetDlgItem($studio, 200)
     foreach ($control in @($layoutMode, $contentScale, $appearanceMode, $glass, $opacity,
             $blur, $radius, $positionA, $positionB, $sizeA, $sizeB, $widgetCheck,
-            $applyUniversalButton, $layoutPageButton, $widgetPageButton)) {
+            $generalFont, $generalTint, $useGeneralAppearance, $fontFamily, $tint, $applyGeneral,
+            $applyUniversalButton, $generalPageButton, $layoutPageButton,
+            $appearancePageButton, $widgetPageButton)) {
         if ($control -eq [IntPtr]::Zero) { throw 'Widget Studio is missing a stable settings control.' }
     }
-    foreach ($settingId in 400..405) {
+    foreach ($settingId in 400..404) {
         if ([WidgetStudioSmokeNative]::GetDlgItem($studio, $settingId) -eq [IntPtr]::Zero) {
             throw "Widget Studio does not expose Clock setting control $settingId directly."
         }
@@ -273,9 +285,33 @@ try {
         [WidgetStudioSmokeNative]::IsWindowVisible($applyUniversalButton)) {
         throw 'Widget Studio page navigation did not expose Widget content cleanly.'
     }
+
+    # General appearance updates every participating widget, including Calendar.
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $generalPageButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage($generalFont, 0x014E, [IntPtr]6, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $studio, 0x0111, [IntPtr](242 -bor (1 -shl 16)), $generalFont)
+    Start-Sleep -Milliseconds 100
+    $scene = Read-Scene $scenePath
+    if ($scene.generalAppearance.fontFamily -ne 'Georgia' -or
+        @($scene.widgets | Where-Object {
+            $_.useGeneralAppearance -ne $true -or $_.appearance.fontFamily -ne 'Georgia'
+        }).Count -ne 0) {
+        throw 'General appearance did not update every participating widget.'
+    }
+
+    # The selected Clock opts out before receiving its individual style.
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $appearancePageButton, 0x00F5, [IntPtr]::Zero, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $useGeneralAppearance, 0x00F1, [IntPtr]0, [IntPtr]::Zero)
+    [void][WidgetStudioSmokeNative]::SendMessage(
+        $studio, 0x0111, [IntPtr]250, $useGeneralAppearance)
     [void][WidgetStudioSmokeNative]::SendMessage($layoutMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
     $layoutChanged = 209 -bor (1 -shl 16)
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]$layoutChanged, $layoutMode)
+    [void][WidgetStudioSmokeNative]::SendMessage($fontFamily, 0x014E, [IntPtr]9, [IntPtr]::Zero)
     [void][WidgetStudioSmokeNative]::SendMessage($appearanceMode, 0x014E, [IntPtr]1, [IntPtr]::Zero)
     [void][WidgetStudioSmokeNative]::SendMessage($glass, 0x014E, [IntPtr]2, [IntPtr]::Zero)
     Start-Sleep -Milliseconds 100
@@ -286,7 +322,8 @@ try {
     if (-not $configured -or $configured.layoutMode -ne 'free' -or
         [double]$configured.free.width -le 100.0 -or [double]$configured.free.height -le 100.0 -or
         $configured.appearance.mode -ne 'light' -or $configured.appearance.surface -ne 'solid' -or
-        $configured.appearance.glass -ne $false) {
+        $configured.appearance.glass -ne $false -or $configured.useGeneralAppearance -ne $false -or
+        $configured.appearance.fontFamily -ne 'Verdana') {
         throw 'Widget Studio did not persist the converted free layout and appearance toggles.'
     }
 
@@ -306,7 +343,8 @@ try {
     if ($duplicate.instanceId -eq $configuredId -or $duplicate.typeId -ne 'clock' -or
         $duplicate.layoutMode -ne 'free' -or $duplicate.state.use24Hour -ne 'false' -or
         $duplicate.appearance.mode -ne 'light' -or $duplicate.appearance.surface -ne 'solid' -or
-        $duplicate.appearance.glass -ne $false) {
+        $duplicate.appearance.glass -ne $false -or $duplicate.useGeneralAppearance -ne $false -or
+        $duplicate.appearance.fontFamily -ne 'Verdana') {
         throw 'Widget Studio Duplicate did not preserve common and widget-specific state.'
     }
     [void][WidgetStudioSmokeNative]::SendMessage($studio, 0x0111, [IntPtr]207, [IntPtr]::Zero)
@@ -407,6 +445,8 @@ try {
         studioPreviewAboveSettings = $true
         studioPreviewUsesFullMonitorAspect = $true
         settingsFitWithoutScrolling = $true
+        generalAppearancePassed = $true
+        perWidgetAppearanceOptOutPassed = $true
         universalSettingsPassed = $true
         widgetSpecificSettingsPassed = $true
         duplicateStatePassed = $true

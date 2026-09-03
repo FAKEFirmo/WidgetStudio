@@ -402,13 +402,19 @@ ws::WidgetPersistenceRecord ExampleRecord() {
     record.appearance.innerPadding = 22.0f;
     record.appearance.borderEnabled = false;
     record.appearance.shadowEnabled = false;
+    record.appearance.fontFamily = L"Georgia";
+    record.appearance.tintColor = 0x345678;
+    record.useGeneralAppearance = false;
     record.widgetState.emplace(L"caption", L"Unicode ✓ and \"quotes\"");
     return record;
 }
 
 void TestSerialization() {
     const ws::WidgetPersistenceRecord expected = ExampleRecord();
-    const std::string json = ws::SceneJsonCodec::Encode({expected});
+    ws::WidgetSceneSnapshot snapshot{expected};
+    snapshot.generalAppearance.fontFamily = L"Verdana";
+    snapshot.generalAppearance.tintColor = 0x102030;
+    const std::string json = ws::SceneJsonCodec::Encode(snapshot);
     std::wstring error;
     const auto decoded = ws::SceneJsonCodec::Decode(json, error);
     Require(decoded.has_value() && decoded->schemaVersion == ws::SceneJsonCodec::kCurrentSchemaVersion,
@@ -424,8 +430,13 @@ void TestSerialization() {
         "content scale should round-trip");
     Require(actual.appearance.surface == ws::SurfaceMode::Solid &&
         actual.appearance.innerPadding == 22.0f && !actual.appearance.borderEnabled &&
-        !actual.appearance.shadowEnabled,
+        !actual.appearance.shadowEnabled && actual.appearance.fontFamily == L"Georgia" &&
+        actual.appearance.tintColor == 0x345678 && !actual.useGeneralAppearance,
         "reference appearance settings should round-trip");
+    Require(decoded->generalAppearance.fontFamily == L"Verdana" &&
+        decoded->generalAppearance.tintColor == 0x102030 &&
+        decoded->widgets.generalAppearance.fontFamily == L"Verdana",
+        "general appearance should round-trip with the scene snapshot");
 
     Require(!ws::SceneJsonCodec::Decode("{\"schemaVersion\":1,\"widgets\":[", error),
         "malformed JSON should be rejected");
@@ -451,8 +462,45 @@ void TestSerialization() {
         "\"typeId\":\"clock\",\"grid\":{\"column\":0,\"row\":0,"
         "\"columnSpan\":4,\"rowSpan\":2},\"state\":{}}]}", error);
     Require(migrated && migrated->schemaVersion == ws::SceneJsonCodec::kCurrentSchemaVersion &&
-        migrated->widgets.front().monitorId == L"primary",
+        migrated->widgets.front().monitorId == L"primary" &&
+        migrated->widgets.front().useGeneralAppearance,
         "schema version 0 should migrate missing monitor association to the primary display");
+}
+
+void TestGeneralAppearance() {
+    ws::WidgetRegistry registry = CreateRegistry();
+    ws::WidgetScene scene(registry);
+    ws::WidgetInstance* first = scene.CreateWidget("test", L"DISPLAY-A");
+    Require(first != nullptr, "first general-appearance fixture should be created");
+    const std::string firstId = first->instanceId;
+    ws::WidgetInstance* second = scene.CreateWidget("test", L"DISPLAY-A");
+    Require(second != nullptr, "second general-appearance fixture should be created");
+    const std::string secondId = second->instanceId;
+    Require(scene.Find(firstId)->useGeneralAppearance && scene.Find(secondId)->useGeneralAppearance,
+        "new widgets should follow general appearance by default");
+
+    ws::WidgetAppearance general = scene.GeneralAppearance();
+    general.fontFamily = L"Georgia";
+    general.tintColor = 0x234567;
+    scene.SetGeneralAppearance(general);
+    Require(scene.Find(firstId)->appearance.fontFamily == L"Georgia" &&
+        scene.Find(secondId)->appearance.tintColor == 0x234567,
+        "general appearance should update every participating widget");
+
+    Require(scene.SetUseGeneralAppearance(secondId, false),
+        "a widget should be able to opt out of general appearance");
+    general.fontFamily = L"Verdana";
+    general.tintColor = 0x765432;
+    scene.SetGeneralAppearance(general);
+    Require(scene.Find(firstId)->appearance.fontFamily == L"Verdana" &&
+        scene.Find(firstId)->appearance.tintColor == 0x765432 &&
+        scene.Find(secondId)->appearance.fontFamily == L"Georgia" &&
+        scene.Find(secondId)->appearance.tintColor == 0x234567,
+        "opted-out widgets should retain their individual appearance");
+    const ws::WidgetSceneSnapshot saved = scene.Snapshot();
+    Require(saved.generalAppearance.fontFamily == L"Verdana" &&
+        saved.front().useGeneralAppearance && !saved.back().useGeneralAppearance,
+        "general appearance and per-widget participation should persist");
 }
 
 void TestAuthoredLayout() {
@@ -530,19 +578,18 @@ void TestClockStateAndScheduling() {
         {L"showDate", L"false"},
         {L"showDivider", L"false"},
         {L"dateFormat", L"weekday"},
-        {L"fontFamily", L"Georgia"},
     });
     const ws::WidgetState state = clock.SaveState();
     Require(state.at(L"use24Hour") == L"false" && state.at(L"showSeconds") == L"true" &&
         state.at(L"showDate") == L"false" && state.at(L"showDivider") == L"false" &&
-        state.at(L"dateFormat") == L"weekday" && state.at(L"fontFamily") == L"Georgia",
+        state.at(L"dateFormat") == L"weekday",
         "clock settings should round-trip through widget state");
     const auto now = std::chrono::system_clock::now();
     const auto next = clock.NextUpdateTime();
     Require(next.has_value() && *next > now && *next - now <= std::chrono::seconds(1),
         "seconds mode should schedule the next displayed-second boundary");
     const auto settings = clock.Settings();
-    Require(settings.size() == 6, "clock should expose generic setting definitions");
+    Require(settings.size() == 5, "clock should expose generic content setting definitions");
     Require(settings[4].choices.size() == settings[4].choiceDisplayNames.size() &&
         settings[4].choiceDisplayNames[0] == L"Long date",
         "choice settings should expose user-facing labels separately from persisted values");
@@ -680,6 +727,7 @@ int main() {
         TestWidgetWindowPlacement();
         TestWallpaperPlacement();
         TestSerialization();
+        TestGeneralAppearance();
         TestAuthoredLayout();
         TestAtomicStoreAndRestore();
         TestClockStateAndScheduling();

@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.24)
-project(WidgetStudio VERSION 0.2.0 LANGUAGES CXX RC)
+project(WidgetStudio VERSION 0.3.0 LANGUAGES CXX RC)
 
 if(NOT MSVC)
     message(FATAL_ERROR "WidgetStudio requires the MSVC toolchain.")

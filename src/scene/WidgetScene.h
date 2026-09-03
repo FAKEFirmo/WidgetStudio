@@ -39,6 +39,9 @@ public:
 
     [[nodiscard]] std::optional<std::string> PrimarySelection() const;
     [[nodiscard]] std::size_t SelectionCount() const noexcept;
+    [[nodiscard]] const WidgetAppearance& GeneralAppearance() const noexcept { return generalAppearance_; }
+    void SetGeneralAppearance(WidgetAppearance appearance);
+    bool SetUseGeneralAppearance(std::string_view instanceId, bool enabled);
 
     WidgetInstance* CreateWidget(std::string_view typeId, std::wstring_view monitorId = L"primary");
     bool RemoveWidget(std::string_view instanceId) noexcept;
@@ -64,6 +67,7 @@ private:
         const WidgetInstance& source, RectF bounds) const noexcept;
     const WidgetRegistry& registry_;
     std::vector<WidgetInstance> widgets_;
+    WidgetAppearance generalAppearance_{};
     int gridColumns_{12};
     int gridRows_{7};
 };

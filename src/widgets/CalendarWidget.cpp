@@ -25,10 +25,15 @@ bool ReadBool(const WidgetState& state, const wchar_t* key, bool fallback) {
     return fallback;
 }
 
-HRESULT CreateFormat(IDWriteFactory& factory, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** format) {
-    HRESULT result = factory.CreateTextFormat(L"Segoe UI Variable", nullptr, weight,
+HRESULT CreateFormat(IDWriteFactory& factory, const wchar_t* family, float size,
+    DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** format) {
+    HRESULT result = factory.CreateTextFormat(family, nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
-    if (FAILED(result)) {
+    if (FAILED(result) && wcscmp(family, L"Segoe UI Variable") != 0) {
+        result = factory.CreateTextFormat(L"Segoe UI Variable", nullptr, weight,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
+    }
+    if (FAILED(result) && wcscmp(family, L"Segoe UI") != 0) {
         result = factory.CreateTextFormat(L"Segoe UI", nullptr, weight,
             DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
     }
@@ -50,16 +55,22 @@ std::chrono::system_clock::time_point FileTimeToSystemClock(FILETIME fileTime) n
 
 } // namespace
 
-HRESULT CalendarWidget::EnsureTextFormats(IDWriteFactory& factory) const {
-    if (monthFormat_ && yearFormat_ && weekdayFormat_ && dayFormat_) return S_OK;
+HRESULT CalendarWidget::EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const {
+    if (monthFormat_ && yearFormat_ && weekdayFormat_ && dayFormat_ &&
+        formatFontFamily_ == fontFamily) return S_OK;
     monthFormat_.Reset(); yearFormat_.Reset(); weekdayFormat_.Reset(); dayFormat_.Reset();
-    HRESULT result = CreateFormat(factory, 25.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, monthFormat_.GetAddressOf());
+    formatFontFamily_ = fontFamily;
+    HRESULT result = CreateFormat(factory, formatFontFamily_.c_str(), 25.0f,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, monthFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, 18.0f, DWRITE_FONT_WEIGHT_NORMAL, yearFormat_.GetAddressOf());
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 18.0f,
+        DWRITE_FONT_WEIGHT_NORMAL, yearFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, 11.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, weekdayFormat_.GetAddressOf());
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 11.0f,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, weekdayFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, 14.0f, DWRITE_FONT_WEIGHT_NORMAL, dayFormat_.GetAddressOf());
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 14.0f,
+        DWRITE_FONT_WEIGHT_NORMAL, dayFormat_.GetAddressOf());
     if (FAILED(result)) return result;
     for (IDWriteTextFormat* format : {monthFormat_.Get(), yearFormat_.Get(), weekdayFormat_.Get(), dayFormat_.Get()}) {
         result = format->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -75,7 +86,7 @@ HRESULT CalendarWidget::EnsureTextFormats(IDWriteFactory& factory) const {
 }
 
 void CalendarWidget::Render(const WidgetRenderContext& context) const {
-    if (FAILED(EnsureTextFormats(context.dwriteFactory))) return;
+    if (FAILED(EnsureTextFormats(context.dwriteFactory, context.fontFamily))) return;
     SYSTEMTIME now{};
     GetLocalTime(&now);
     const CivilDate today{now.wYear, now.wMonth, now.wDay};

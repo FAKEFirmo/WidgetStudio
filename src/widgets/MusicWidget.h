@@ -31,7 +31,7 @@ public:
     [[nodiscard]] static WidgetDescriptor Descriptor(std::shared_ptr<MediaSessionService> mediaSession);
 
 private:
-    HRESULT EnsureTextFormats(IDWriteFactory& factory) const;
+    HRESULT EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const;
     [[nodiscard]] ID2D1Bitmap* ArtworkFor(
         const WidgetRenderContext& context, const MediaSessionSnapshot& snapshot) const;
 
@@ -46,6 +46,7 @@ private:
     std::shared_ptr<MediaSessionService> mediaSession_;
     mutable std::optional<std::size_t> currentProfile_;
     mutable std::vector<ArtworkCacheEntry> artworkCache_;
+    mutable std::wstring formatFontFamily_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> titleFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> metadataFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> smallFormat_;

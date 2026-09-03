@@ -20,6 +20,7 @@ struct WidgetRenderContext {
     IDWriteTextFormat& detailFormat;
     RectF bounds;
     std::string_view instanceId;
+    std::wstring_view fontFamily;
     float contentScale{1.0f};
     bool lightAppearance{false};
     std::uint64_t resourceGeneration{};

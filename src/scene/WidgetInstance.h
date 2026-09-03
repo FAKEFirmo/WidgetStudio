@@ -3,6 +3,7 @@
 #include "widgets/IWidget.h"
 
 #include <memory>
+#include <cstdint>
 #include <string>
 
 namespace ws {
@@ -47,6 +48,8 @@ struct WidgetAppearance {
     float innerPadding{20.0f};
     bool borderEnabled{true};
     bool shadowEnabled{true};
+    std::wstring fontFamily{L"Segoe UI Variable"};
+    std::uint32_t tintColor{0x16171B};
 };
 
 struct WidgetInstance {
@@ -57,6 +60,7 @@ struct WidgetInstance {
     GridPlacement grid{};
     FreePlacement free{};
     WidgetAppearance appearance{};
+    bool useGeneralAppearance{true};
     float contentScale{1.0f};
     bool locked{false};
     bool selected{false};

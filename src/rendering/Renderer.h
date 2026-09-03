@@ -93,7 +93,12 @@ private:
         std::uint64_t wallpaperRevision{};
         Microsoft::WRL::ComPtr<ID2D1Bitmap> bitmap;
     };
+    struct FontFormatEntry {
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> title;
+        Microsoft::WRL::ComPtr<IDWriteTextFormat> detail;
+    };
     std::unordered_map<std::string, GlassCacheEntry> glassCache_;
+    std::unordered_map<std::wstring, FontFormatEntry> fontFormats_;
 };
 
 } // namespace ws

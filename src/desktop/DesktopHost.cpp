@@ -491,6 +491,7 @@ SceneLoadStatus DesktopHost::LoadScene() {
         return result.status;
     }
 
+    scene_.SetGeneralAppearance(result.snapshot.generalAppearance);
     for (const auto& record : result.snapshot) {
         if (!scene_.RestoreWidget(record)) unrestoredRecords_.push_back(record);
     }
@@ -499,7 +500,8 @@ SceneLoadStatus DesktopHost::LoadScene() {
 
 void DesktopHost::SaveScene() {
     WidgetSceneSnapshot snapshot = scene_.Snapshot();
-    snapshot.insert(snapshot.end(), unrestoredRecords_.begin(), unrestoredRecords_.end());
+    snapshot.widgets.insert(
+        snapshot.widgets.end(), unrestoredRecords_.begin(), unrestoredRecords_.end());
     std::wstring error;
     if (sceneStore_.Save(snapshot, error)) {
         persistenceErrorShown_ = false;

@@ -8,6 +8,7 @@
 #include <algorithm>
 #include <array>
 #include <cmath>
+#include <cstdint>
 #include <cwchar>
 #include <shobjidl.h>
 #include <string>
@@ -47,6 +48,20 @@ constexpr int kBorder = 226;
 constexpr int kShadow = 227;
 constexpr int kShowGrid = 228;
 constexpr int kSettingsPageBase = 229;
+constexpr int kGeneralAppearanceMode = 240;
+constexpr int kGeneralSurface = 241;
+constexpr int kGeneralFont = 242;
+constexpr int kGeneralTint = 243;
+constexpr int kGeneralOpacity = 244;
+constexpr int kGeneralBlur = 245;
+constexpr int kGeneralRadius = 246;
+constexpr int kGeneralPadding = 247;
+constexpr int kGeneralBorder = 248;
+constexpr int kGeneralShadow = 249;
+constexpr int kUseGeneralAppearance = 250;
+constexpr int kFontFamily = 251;
+constexpr int kTint = 252;
+constexpr int kApplyGeneral = 253;
 constexpr int kWidgetSettingBase = 400;
 constexpr int kWidgetBrowseBase = 500;
 
@@ -100,6 +115,78 @@ std::wstring ReadText(HWND control) {
     GetWindowTextW(control, text.data(), length + 1);
     text.resize(static_cast<std::size_t>(length));
     return text;
+}
+
+void PopulateFonts(HWND control) {
+    for (const wchar_t* font : {L"Segoe UI Variable", L"Segoe UI", L"Arial", L"Calibri",
+            L"Cambria", L"Consolas", L"Georgia", L"Tahoma", L"Times New Roman", L"Verdana"}) {
+        SendMessageW(control, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(font));
+    }
+}
+
+void SetTint(HWND control, std::uint32_t color) {
+    wchar_t text[8]{};
+    _snwprintf_s(text, _countof(text), _TRUNCATE, L"#%06X", color & 0x00FFFFFFu);
+    SetWindowTextW(control, text);
+}
+
+std::uint32_t ReadTint(HWND control, std::uint32_t fallback) {
+    const std::wstring value = ReadText(control);
+    if (value.size() != 7 || value.front() != L'#') {
+        SetTint(control, fallback);
+        return fallback;
+    }
+    unsigned parsed{};
+    wchar_t trailing{};
+    if (swscanf_s(value.c_str(), L"#%6x%c", &parsed, &trailing, 1u) != 1 ||
+        parsed > 0x00FFFFFFu) {
+        SetTint(control, fallback);
+        return fallback;
+    }
+    SetTint(control, static_cast<std::uint32_t>(parsed));
+    return static_cast<std::uint32_t>(parsed);
+}
+
+WidgetAppearance ReadAppearance(HWND theme, HWND surface, HWND font, HWND tint,
+    HWND opacity, HWND blur, HWND radius, HWND padding, HWND border, HWND shadow,
+    WidgetAppearance fallback) {
+    fallback.mode = SendMessageW(theme, CB_GETCURSEL, 0, 0) == 1
+        ? AppearanceMode::Light : AppearanceMode::Dark;
+    const LRESULT surfaceSelection = SendMessageW(surface, CB_GETCURSEL, 0, 0);
+    fallback.surface = surfaceSelection == 1 ? SurfaceMode::Transparent :
+        surfaceSelection == 2 ? SurfaceMode::Solid : SurfaceMode::Frosted;
+    fallback.glassEnabled = fallback.surface == SurfaceMode::Frosted;
+    std::wstring requestedFont = ReadText(font);
+    if (!requestedFont.empty() && requestedFont.size() <= 128) {
+        fallback.fontFamily = std::move(requestedFont);
+    }
+    fallback.tintColor = ReadTint(tint, fallback.tintColor);
+    fallback.opacity = std::clamp(
+        static_cast<float>(ReadNumber(opacity, fallback.opacity)), 0.0f, 1.0f);
+    fallback.blurRadius = std::clamp(
+        static_cast<float>(ReadNumber(blur, fallback.blurRadius)), 0.0f, 128.0f);
+    fallback.cornerRadius = std::clamp(
+        static_cast<float>(ReadNumber(radius, fallback.cornerRadius)), 0.0f, 128.0f);
+    fallback.innerPadding = std::clamp(
+        static_cast<float>(ReadNumber(padding, fallback.innerPadding)), 0.0f, 64.0f);
+    fallback.borderEnabled = SendMessageW(border, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    fallback.shadowEnabled = SendMessageW(shadow, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    return fallback;
+}
+
+void SetAppearanceControls(const WidgetAppearance& appearance, HWND theme, HWND surface,
+    HWND font, HWND tint, HWND opacity, HWND blur, HWND radius, HWND padding,
+    HWND border, HWND shadow) {
+    SendMessageW(theme, CB_SETCURSEL, appearance.mode == AppearanceMode::Dark ? 0 : 1, 0);
+    SendMessageW(surface, CB_SETCURSEL, static_cast<WPARAM>(appearance.surface), 0);
+    SetWindowTextW(font, appearance.fontFamily.c_str());
+    SetTint(tint, appearance.tintColor);
+    SetNumber(opacity, appearance.opacity);
+    SetNumber(blur, appearance.blurRadius);
+    SetNumber(radius, appearance.cornerRadius);
+    SetNumber(padding, appearance.innerPadding);
+    SendMessageW(border, BM_SETCHECK, appearance.borderEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(shadow, BM_SETCHECK, appearance.shadowEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
 }
 
 void EnableNativeDarkFrame(HWND window) {
@@ -266,10 +353,23 @@ void WidgetStudioWindow::CancelInteraction() {
 void WidgetStudioWindow::ResetControlHandles() noexcept {
     preview_ = nullptr;
     settingsPageButtons_.fill(nullptr);
+    generalAppearanceMode_ = nullptr;
+    generalSurface_ = nullptr;
+    generalFont_ = nullptr;
+    generalTint_ = nullptr;
+    generalOpacity_ = nullptr;
+    generalBlur_ = nullptr;
+    generalRadius_ = nullptr;
+    generalPadding_ = nullptr;
+    generalBorder_ = nullptr;
+    generalShadow_ = nullptr;
     monitorChoice_ = nullptr;
     layoutMode_ = nullptr;
     locked_ = nullptr;
     contentScale_ = nullptr;
+    useGeneralAppearance_ = nullptr;
+    fontFamily_ = nullptr;
+    tint_ = nullptr;
     appearanceMode_ = nullptr;
     glass_ = nullptr;
     padding_ = nullptr;
@@ -286,15 +386,18 @@ void WidgetStudioWindow::ResetControlHandles() noexcept {
     duplicate_ = nullptr;
     alignment_ = nullptr;
     widgetEmpty_ = nullptr;
+    generalSection_ = nullptr;
     layoutSection_ = nullptr;
     appearanceSection_ = nullptr;
     widgetSection_ = nullptr;
     actionsSection_ = nullptr;
+    applyGeneral_ = nullptr;
     applyUniversal_ = nullptr;
     openLibraryButton_ = nullptr;
     delete_ = nullptr;
     applyAlignment_ = nullptr;
     layoutFields_.clear();
+    generalFields_.clear();
     appearanceFields_.clear();
     widgetFields_.clear();
     widgetSettingControls_.clear();
@@ -363,20 +466,72 @@ LRESULT CALLBACK WidgetStudioWindow::PreviewProc(HWND hwnd, UINT message, WPARAM
 
 bool WidgetStudioWindow::CreateControls() {
     layoutFields_.clear();
+    generalFields_.clear();
     appearanceFields_.clear();
     widgetFields_.clear();
     preview_ = CreateWindowExW(WS_EX_CLIENTEDGE, kPreviewClass, nullptr, WS_CHILD | WS_VISIBLE,
         0, 0, 100, 100, hwnd_, nullptr, instance_, this);
-    const std::array<const wchar_t*, 4> pageLabels{
-        L"Layout", L"Appearance", L"Widget content", L"Actions"};
+    const std::array<const wchar_t*, 5> pageLabels{
+        L"General", L"Layout", L"Widget style", L"Widget content", L"Actions"};
     for (std::size_t index = 0; index < settingsPageButtons_.size(); ++index) {
         settingsPageButtons_[index] = AddControl(hwnd_, instance_, L"BUTTON", pageLabels[index],
             BS_OWNERDRAW | WS_TABSTOP, kSettingsPageBase + static_cast<int>(index));
     }
+    generalSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"General widget appearance", BS_GROUPBOX);
     layoutSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Layout && placement", BS_GROUPBOX);
-    appearanceSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Appearance", BS_GROUPBOX);
+    appearanceSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Widget appearance", BS_GROUPBOX);
     widgetSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Widget content", BS_GROUPBOX);
     actionsSection_ = AddControl(hwnd_, instance_, L"BUTTON", L"Actions && alignment", BS_GROUPBOX);
+
+    HWND generalFontLabel = AddControl(hwnd_, instance_, L"STATIC", L"Font family", 0);
+    generalFont_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP, kGeneralFont);
+    PopulateFonts(generalFont_);
+    generalFields_.push_back({generalFontLabel, generalFont_});
+    HWND generalTintLabel = AddControl(hwnd_, instance_, L"STATIC", L"Tint (#RRGGBB)", 0);
+    generalTint_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kGeneralTint, WS_EX_CLIENTEDGE);
+    generalFields_.push_back({generalTintLabel, generalTint_});
+    HWND generalThemeLabel = AddControl(hwnd_, instance_, L"STATIC", L"Theme", 0);
+    generalAppearanceMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kGeneralAppearanceMode);
+    SendMessageW(generalAppearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Dark"));
+    SendMessageW(generalAppearanceMode_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Light"));
+    generalFields_.push_back({generalThemeLabel, generalAppearanceMode_});
+    HWND generalSurfaceLabel = AddControl(hwnd_, instance_, L"STATIC", L"Surface mode", 0);
+    generalSurface_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWNLIST | WS_TABSTOP, kGeneralSurface);
+    SendMessageW(generalSurface_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Frosted glass"));
+    SendMessageW(generalSurface_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Transparent / text-only"));
+    SendMessageW(generalSurface_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Solid translucent"));
+    generalFields_.push_back({generalSurfaceLabel, generalSurface_});
+    HWND generalOpacityLabel = AddControl(hwnd_, instance_, L"STATIC", L"Opacity (0-1)", 0);
+    generalOpacity_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kGeneralOpacity, WS_EX_CLIENTEDGE);
+    generalFields_.push_back({generalOpacityLabel, generalOpacity_});
+    HWND generalBlurLabel = AddControl(hwnd_, instance_, L"STATIC", L"Blur radius (DIP)", 0);
+    generalBlur_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kGeneralBlur, WS_EX_CLIENTEDGE);
+    generalFields_.push_back({generalBlurLabel, generalBlur_});
+    HWND generalRadiusLabel = AddControl(hwnd_, instance_, L"STATIC", L"Corner radius (DIP)", 0);
+    generalRadius_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kGeneralRadius, WS_EX_CLIENTEDGE);
+    generalFields_.push_back({generalRadiusLabel, generalRadius_});
+    HWND generalPaddingLabel = AddControl(hwnd_, instance_, L"STATIC", L"Internal padding (DIP)", 0);
+    generalPadding_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kGeneralPadding, WS_EX_CLIENTEDGE);
+    generalFields_.push_back({generalPaddingLabel, generalPadding_});
+    HWND generalBorderLabel = AddControl(hwnd_, instance_, L"STATIC", L"Border", 0);
+    generalBorder_ = AddControl(hwnd_, instance_, L"BUTTON", L"1 DIP subtle border",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kGeneralBorder);
+    generalFields_.push_back({generalBorderLabel, generalBorder_});
+    HWND generalShadowLabel = AddControl(hwnd_, instance_, L"STATIC", L"Shadow", 0);
+    generalShadow_ = AddControl(hwnd_, instance_, L"BUTTON", L"Subtle shadow",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kGeneralShadow);
+    generalFields_.push_back({generalShadowLabel, generalShadow_});
+    applyGeneral_ = AddControl(hwnd_, instance_, L"BUTTON", L"Apply general settings",
+        BS_PUSHBUTTON | WS_TABSTOP, kApplyGeneral);
+
     HWND monitorLabel = AddControl(hwnd_, instance_, L"STATIC", L"Monitor", 0);
     monitorChoice_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kMonitorChoice);
@@ -399,6 +554,19 @@ bool WidgetStudioWindow::CreateControls() {
     layoutFields_.push_back({scaleLabel, contentScale_});
     HWND lockLabel = AddControl(hwnd_, instance_, L"STATIC", L"Lock widget", 0);
     layoutFields_.push_back({lockLabel, locked_});
+    HWND generalOptOutLabel = AddControl(hwnd_, instance_, L"STATIC", L"General appearance", 0);
+    useGeneralAppearance_ = AddControl(hwnd_, instance_, L"BUTTON", L"Use general settings",
+        BS_AUTOCHECKBOX | WS_TABSTOP, kUseGeneralAppearance);
+    appearanceFields_.push_back({generalOptOutLabel, useGeneralAppearance_});
+    HWND fontLabel = AddControl(hwnd_, instance_, L"STATIC", L"Font family", 0);
+    fontFamily_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
+        CBS_DROPDOWN | CBS_AUTOHSCROLL | WS_VSCROLL | WS_TABSTOP, kFontFamily);
+    PopulateFonts(fontFamily_);
+    appearanceFields_.push_back({fontLabel, fontFamily_});
+    HWND tintLabel = AddControl(hwnd_, instance_, L"STATIC", L"Tint (#RRGGBB)", 0);
+    tint_ = AddControl(hwnd_, instance_, L"EDIT", nullptr,
+        ES_AUTOHSCROLL | WS_TABSTOP, kTint, WS_EX_CLIENTEDGE);
+    appearanceFields_.push_back({tintLabel, tint_});
     HWND appearanceLabel = AddControl(hwnd_, instance_, L"STATIC", L"Theme", 0);
     appearanceMode_ = AddControl(hwnd_, instance_, L"COMBOBOX", nullptr,
         CBS_DROPDOWNLIST | WS_TABSTOP, kAppearanceMode);
@@ -475,10 +643,13 @@ bool WidgetStudioWindow::CreateControls() {
         L"Select a configurable widget to edit its content.", SS_LEFT);
     UpdateSettingsPageVisibility();
     return preview_ && std::ranges::all_of(settingsPageButtons_, [](HWND button) { return button != nullptr; }) &&
-        monitorChoice_ && layoutMode_ && locked_ && contentScale_ &&
+        generalAppearanceMode_ && generalSurface_ && generalFont_ && generalTint_ && generalOpacity_ &&
+        generalBlur_ && generalRadius_ && generalPadding_ && generalBorder_ && generalShadow_ &&
+        monitorChoice_ && layoutMode_ && locked_ && contentScale_ && useGeneralAppearance_ && fontFamily_ && tint_ &&
         appearanceMode_ && glass_ && opacity_ && blur_ && radius_ && padding_ && border_ && shadow_ && showGrid_ &&
         positionA_ && positionB_ && sizeA_ && sizeB_ && duplicate_ && alignment_ && widgetEmpty_ &&
-        layoutSection_ && appearanceSection_ && widgetSection_ && actionsSection_ &&
+        generalSection_ && layoutSection_ && appearanceSection_ && widgetSection_ && actionsSection_ &&
+        applyGeneral_ &&
         applyUniversal_ && openLibraryButton_ && delete_ && applyAlignment_;
 }
 
@@ -489,10 +660,14 @@ void WidgetStudioWindow::UpdateSettingsPageVisibility() {
             ShowWindow(field.control, visible ? SW_SHOW : SW_HIDE);
         }
     };
-    const bool layoutVisible = activeSettingsPage_ == 0;
-    const bool appearanceVisible = activeSettingsPage_ == 1;
-    const bool widgetVisible = activeSettingsPage_ == 2;
-    const bool actionsVisible = activeSettingsPage_ == 3;
+    const bool generalVisible = activeSettingsPage_ == 0;
+    const bool layoutVisible = activeSettingsPage_ == 1;
+    const bool appearanceVisible = activeSettingsPage_ == 2;
+    const bool widgetVisible = activeSettingsPage_ == 3;
+    const bool actionsVisible = activeSettingsPage_ == 4;
+    ShowWindow(generalSection_, generalVisible ? SW_SHOW : SW_HIDE);
+    showFields(generalFields_, generalVisible);
+    ShowWindow(applyGeneral_, generalVisible ? SW_SHOW : SW_HIDE);
     ShowWindow(layoutSection_, layoutVisible ? SW_SHOW : SW_HIDE);
     showFields(layoutFields_, layoutVisible);
     ShowWindow(applyUniversal_, layoutVisible ? SW_SHOW : SW_HIDE);
@@ -526,10 +701,11 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
             static_cast<int>(12.0f * dpiScale);
     };
     const int layoutHeight = sectionHeight(layoutFields_.size(), 0);
+    const int generalHeight = sectionHeight(generalFields_.size(), 0);
     const int appearanceHeight = sectionHeight(appearanceFields_.size(), 0);
     const int widgetHeight = sectionHeight(std::max<std::size_t>(1, widgetFields_.size()), 0);
     const int actionsHeight = static_cast<int>(112.0f * dpiScale);
-    const int pageHeight = std::max({layoutHeight, appearanceHeight, widgetHeight, actionsHeight});
+    const int pageHeight = std::max({generalHeight, layoutHeight, appearanceHeight, widgetHeight, actionsHeight});
     const int navigationHeight = static_cast<int>(34.0f * dpiScale);
     const int naturalPreviewHeight = std::max(1, static_cast<int>(std::lround(
         static_cast<float>(contentWidth) / std::max(0.5f, monitorAspect))));
@@ -624,6 +800,7 @@ void WidgetStudioWindow::LayoutControls(int width, int height) {
         }
     };
 
+    placeSection(generalSection_, generalFields_, y, pageHeight, applyGeneral_);
     placeSection(layoutSection_, layoutFields_, y, pageHeight, applyUniversal_);
     placeSection(appearanceSection_, appearanceFields_, y, pageHeight, nullptr);
     placeSection(widgetSection_, widgetFields_, y, pageHeight, nullptr);
@@ -726,6 +903,7 @@ WidgetInstance* WidgetStudioWindow::PrimaryWidget() noexcept {
 
 void WidgetStudioWindow::UpdateControlsFromSelection() {
     updatingControls_ = true;
+    UpdateGeneralAppearanceControls();
     WidgetInstance* widget = PrimaryWidget();
     const std::size_t activeSelectionCount = scene_ ? static_cast<std::size_t>(std::count_if(
         scene_->Widgets().begin(), scene_->Widgets().end(), [this](const WidgetInstance& item) {
@@ -746,14 +924,12 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     EnableWindow(layoutMode_, hasWidget);
     EnableWindow(locked_, hasWidget);
     EnableWindow(contentScale_, scalable);
-    EnableWindow(appearanceMode_, hasWidget);
-    EnableWindow(glass_, hasWidget);
-    EnableWindow(opacity_, hasWidget);
-    EnableWindow(blur_, hasWidget);
-    EnableWindow(radius_, hasWidget);
-    EnableWindow(padding_, hasWidget);
-    EnableWindow(border_, hasWidget);
-    EnableWindow(shadow_, hasWidget);
+    EnableWindow(useGeneralAppearance_, hasWidget);
+    const bool customAppearance = hasWidget && !widget->useGeneralAppearance;
+    for (HWND control : {fontFamily_, tint_, appearanceMode_, glass_, opacity_, blur_, radius_,
+            padding_, border_, shadow_}) {
+        EnableWindow(control, customAppearance);
+    }
     EnableWindow(positionA_, single);
     EnableWindow(positionB_, single);
     EnableWindow(sizeA_, single && resizable);
@@ -780,17 +956,41 @@ void WidgetStudioWindow::UpdateControlsFromSelection() {
     SendMessageW(layoutMode_, CB_SETCURSEL, widget->layoutMode == LayoutMode::Grid ? 0 : 1, 0);
     SendMessageW(locked_, BM_SETCHECK, widget->locked ? BST_CHECKED : BST_UNCHECKED, 0);
     SetNumber(contentScale_, widget->contentScale);
-    SendMessageW(appearanceMode_, CB_SETCURSEL, widget->appearance.mode == AppearanceMode::Dark ? 0 : 1, 0);
-    SendMessageW(glass_, CB_SETCURSEL, static_cast<WPARAM>(widget->appearance.surface), 0);
-    SetNumber(opacity_, widget->appearance.opacity);
-    SetNumber(blur_, widget->appearance.blurRadius);
-    SetNumber(radius_, widget->appearance.cornerRadius);
-    SetNumber(padding_, widget->appearance.innerPadding);
-    SendMessageW(border_, BM_SETCHECK, widget->appearance.borderEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
-    SendMessageW(shadow_, BM_SETCHECK, widget->appearance.shadowEnabled ? BST_CHECKED : BST_UNCHECKED, 0);
+    SendMessageW(useGeneralAppearance_, BM_SETCHECK,
+        widget->useGeneralAppearance ? BST_CHECKED : BST_UNCHECKED, 0);
+    SetAppearanceControls(widget->appearance, appearanceMode_, glass_, fontFamily_, tint_,
+        opacity_, blur_, radius_, padding_, border_, shadow_);
     UpdateLayoutSettingValues();
     UpdateWidgetSettingValues();
     updatingControls_ = false;
+}
+
+void WidgetStudioWindow::UpdateGeneralAppearanceControls() {
+    if (!scene_) return;
+    SetAppearanceControls(scene_->GeneralAppearance(), generalAppearanceMode_, generalSurface_,
+        generalFont_, generalTint_, generalOpacity_, generalBlur_, generalRadius_, generalPadding_,
+        generalBorder_, generalShadow_);
+}
+
+void WidgetStudioWindow::ApplyGeneralAppearance() {
+    if (updatingControls_ || !scene_) return;
+    WidgetAppearance requested = ReadAppearance(generalAppearanceMode_, generalSurface_,
+        generalFont_, generalTint_, generalOpacity_, generalBlur_, generalRadius_, generalPadding_,
+        generalBorder_, generalShadow_, scene_->GeneralAppearance());
+    scene_->SetGeneralAppearance(std::move(requested));
+    NotifySceneChanged();
+}
+
+void WidgetStudioWindow::ApplyGeneralAppearanceOptOut() {
+    if (updatingControls_ || !scene_) return;
+    const bool enabled = SendMessageW(useGeneralAppearance_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+    bool changed = false;
+    for (WidgetInstance& widget : scene_->Widgets()) {
+        if (!widget.selected || widget.monitorId != monitorId_) continue;
+        changed = scene_->SetUseGeneralAppearance(widget.instanceId, enabled) || changed;
+    }
+    if (changed) NotifySceneChanged();
+    else UpdateControlsFromSelection();
 }
 
 void WidgetStudioWindow::UpdateLayoutSettingValues() {
@@ -960,19 +1160,10 @@ void WidgetStudioWindow::ApplyUniversalSettings() {
             widget.contentScale = std::clamp(
                 static_cast<float>(ReadNumber(contentScale_, widget.contentScale)), 0.25f, 4.0f);
         }
-        widget.appearance.mode = SendMessageW(appearanceMode_, CB_GETCURSEL, 0, 0) == 1
-            ? AppearanceMode::Light : AppearanceMode::Dark;
-        const LRESULT surface = SendMessageW(glass_, CB_GETCURSEL, 0, 0);
-        widget.appearance.surface = surface == 1 ? SurfaceMode::Transparent :
-            surface == 2 ? SurfaceMode::Solid : SurfaceMode::Frosted;
-        widget.appearance.glassEnabled = widget.appearance.surface == SurfaceMode::Frosted;
-        widget.appearance.opacity = std::clamp(static_cast<float>(ReadNumber(opacity_, widget.appearance.opacity)), 0.0f, 1.0f);
-        widget.appearance.blurRadius = std::clamp(static_cast<float>(ReadNumber(blur_, widget.appearance.blurRadius)), 0.0f, 128.0f);
-        widget.appearance.cornerRadius = std::clamp(static_cast<float>(ReadNumber(radius_, widget.appearance.cornerRadius)), 0.0f, 128.0f);
-        widget.appearance.innerPadding = std::clamp(
-            static_cast<float>(ReadNumber(padding_, widget.appearance.innerPadding)), 0.0f, 64.0f);
-        widget.appearance.borderEnabled = SendMessageW(border_, BM_GETCHECK, 0, 0) == BST_CHECKED;
-        widget.appearance.shadowEnabled = SendMessageW(shadow_, BM_GETCHECK, 0, 0) == BST_CHECKED;
+        if (!widget.useGeneralAppearance) {
+            widget.appearance = ReadAppearance(appearanceMode_, glass_, fontFamily_, tint_, opacity_,
+                blur_, radius_, padding_, border_, shadow_, widget.appearance);
+        }
         if (widget.layoutMode == LayoutMode::Grid && single) {
             const int minimumColumns = descriptor
                 ? std::min(grid_->Columns(), descriptor->minimumGridSize.columns) : 1;
@@ -1248,6 +1439,30 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
             return 0;
         }
         switch (LOWORD(wParam)) {
+        case kApplyGeneral: ApplyGeneralAppearance(); return 0;
+        case kUseGeneralAppearance:
+            if (HIWORD(wParam) == BN_CLICKED) { ApplyGeneralAppearanceOptOut(); return 0; }
+            break;
+        case kGeneralAppearanceMode:
+        case kGeneralSurface:
+            if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyGeneralAppearance(); return 0; }
+            break;
+        case kGeneralFont:
+            if (HIWORD(wParam) == CBN_SELCHANGE || HIWORD(wParam) == CBN_KILLFOCUS) {
+                ApplyGeneralAppearance(); return 0;
+            }
+            break;
+        case kGeneralBorder:
+        case kGeneralShadow:
+            if (HIWORD(wParam) == BN_CLICKED) { ApplyGeneralAppearance(); return 0; }
+            break;
+        case kGeneralTint:
+        case kGeneralOpacity:
+        case kGeneralBlur:
+        case kGeneralRadius:
+        case kGeneralPadding:
+            if (HIWORD(wParam) == EN_KILLFOCUS) { ApplyGeneralAppearance(); return 0; }
+            break;
         case kApplyUniversal: ApplyUniversalSettings(); return 0;
         case kApplyAlignment: ApplyAlignment(); return 0;
         case kOpenLibrary: if (openLibrary_) openLibrary_(); return 0;
@@ -1267,6 +1482,11 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
         case kGlass:
             if (HIWORD(wParam) == CBN_SELCHANGE) { ApplyUniversalSettings(); return 0; }
             break;
+        case kFontFamily:
+            if (HIWORD(wParam) == CBN_SELCHANGE || HIWORD(wParam) == CBN_KILLFOCUS) {
+                ApplyUniversalSettings(); return 0;
+            }
+            break;
         case kLocked:
         case kBorder:
         case kShadow:
@@ -1276,6 +1496,7 @@ LRESULT WidgetStudioWindow::HandleMessage(UINT message, WPARAM wParam, LPARAM lP
             if (HIWORD(wParam) == BN_CLICKED) { InvalidateRect(preview_, nullptr, FALSE); return 0; }
             break;
         case kContentScale:
+        case kTint:
         case kOpacity:
         case kBlur:
         case kRadius:

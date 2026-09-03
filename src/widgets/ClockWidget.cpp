@@ -42,14 +42,15 @@ HRESULT CreateFormat(
 
 } // namespace
 
-HRESULT ClockWidget::EnsureTextFormats(IDWriteFactory& factory) const {
-    if (timeFormat_ && dateTextFormat_) return S_OK;
+HRESULT ClockWidget::EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const {
+    if (timeFormat_ && dateTextFormat_ && formatFontFamily_ == fontFamily) return S_OK;
     timeFormat_.Reset();
     dateTextFormat_.Reset();
-    HRESULT result = CreateFormat(factory, fontFamily_.c_str(), 58.0f,
+    formatFontFamily_ = fontFamily;
+    HRESULT result = CreateFormat(factory, formatFontFamily_.c_str(), 58.0f,
         DWRITE_FONT_WEIGHT_SEMI_BOLD, timeFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, fontFamily_.c_str(), 12.0f,
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 12.0f,
         DWRITE_FONT_WEIGHT_NORMAL, dateTextFormat_.GetAddressOf());
     if (FAILED(result)) return result;
     result = timeFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -66,7 +67,7 @@ HRESULT ClockWidget::EnsureTextFormats(IDWriteFactory& factory) const {
 }
 
 void ClockWidget::Render(const WidgetRenderContext& context) const {
-    if (FAILED(EnsureTextFormats(context.dwriteFactory))) return;
+    if (FAILED(EnsureTextFormats(context.dwriteFactory, context.fontFamily))) return;
     SYSTEMTIME localTime{};
     GetLocalTime(&localTime);
 
@@ -126,8 +127,6 @@ std::span<const WidgetSettingDefinition> ClockWidget::Settings() const noexcept 
         WidgetSettingDefinition{L"dateFormat", L"Date format", WidgetSettingKind::Choice,
             {L"long", L"medium", L"short", L"weekday"}, 0.0, 0.0, 0.0,
             {L"Long date", L"Medium date", L"Short date", L"Weekday and date"}},
-        WidgetSettingDefinition{L"fontFamily", L"Font", WidgetSettingKind::Choice,
-            {L"Segoe UI Variable", L"Segoe UI", L"Arial", L"Georgia"}},
     };
     return definitions;
 }
@@ -139,7 +138,6 @@ WidgetState ClockWidget::SaveState() const {
         {L"showDate", showDate_ ? L"true" : L"false"},
         {L"showDivider", showDivider_ ? L"true" : L"false"},
         {L"dateFormat", dateFormat_},
-        {L"fontFamily", fontFamily_},
     };
 }
 
@@ -154,15 +152,6 @@ void ClockWidget::RestoreState(const WidgetState& state) {
         if (value == L"long" || value == L"medium" || value == L"short" || value == L"weekday") {
             dateFormat_ = value;
         }
-    }
-    const auto fontFamily = state.find(L"fontFamily");
-    if (fontFamily != state.end() &&
-        (fontFamily->second == L"Segoe UI Variable" || fontFamily->second == L"Segoe UI" ||
-            fontFamily->second == L"Arial" || fontFamily->second == L"Georgia") &&
-        fontFamily_ != fontFamily->second) {
-        fontFamily_ = fontFamily->second;
-        timeFormat_.Reset();
-        dateTextFormat_.Reset();
     }
 }
 

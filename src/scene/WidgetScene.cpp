@@ -45,6 +45,42 @@ WidgetState EffectiveWidgetState(const WidgetInstance& widget) {
 
 WidgetScene::WidgetScene(const WidgetRegistry& registry) : registry_(registry) {}
 
+namespace {
+
+WidgetAppearance SanitizeAppearance(WidgetAppearance appearance) {
+    if (!std::isfinite(appearance.opacity)) appearance.opacity = 0.62f;
+    if (!std::isfinite(appearance.blurRadius)) appearance.blurRadius = 18.0f;
+    if (!std::isfinite(appearance.cornerRadius)) appearance.cornerRadius = 24.0f;
+    if (!std::isfinite(appearance.innerPadding)) appearance.innerPadding = 20.0f;
+    appearance.opacity = std::clamp(appearance.opacity, 0.0f, 1.0f);
+    appearance.blurRadius = std::clamp(appearance.blurRadius, 0.0f, 128.0f);
+    appearance.cornerRadius = std::clamp(appearance.cornerRadius, 0.0f, 128.0f);
+    appearance.innerPadding = std::clamp(appearance.innerPadding, 0.0f, 64.0f);
+    appearance.glassEnabled = appearance.surface == SurfaceMode::Frosted;
+    if (appearance.fontFamily.empty() || appearance.fontFamily.size() > 128) {
+        appearance.fontFamily = L"Segoe UI Variable";
+    }
+    appearance.tintColor &= 0x00FFFFFFu;
+    return appearance;
+}
+
+} // namespace
+
+void WidgetScene::SetGeneralAppearance(WidgetAppearance appearance) {
+    generalAppearance_ = SanitizeAppearance(std::move(appearance));
+    for (WidgetInstance& widget : widgets_) {
+        if (widget.useGeneralAppearance) widget.appearance = generalAppearance_;
+    }
+}
+
+bool WidgetScene::SetUseGeneralAppearance(std::string_view instanceId, bool enabled) {
+    WidgetInstance* widget = Find(instanceId);
+    if (!widget) return false;
+    widget->useGeneralAppearance = enabled;
+    if (enabled) widget->appearance = generalAppearance_;
+    return true;
+}
+
 WidgetInstance* WidgetScene::Find(std::string_view instanceId) noexcept {
     const auto it = std::find_if(widgets_.begin(), widgets_.end(), [instanceId](const WidgetInstance& widget) {
         return widget.instanceId == instanceId;
@@ -136,6 +172,8 @@ WidgetInstance* WidgetScene::CreateWidget(std::string_view typeId, std::wstring_
     instance.typeId = descriptor->typeId;
     instance.monitorId = monitorId;
     instance.grid = FindInitialPlacement(descriptor->defaultGridSize, monitorId);
+    instance.appearance = generalAppearance_;
+    instance.useGeneralAppearance = true;
     instance.content = std::move(content);
     widgets_.push_back(std::move(instance));
     Select(widgets_.back().instanceId, false);
@@ -241,6 +279,7 @@ WidgetInstance* WidgetScene::DuplicateWidget(std::string_view instanceId, RectF 
     record.locked = source->locked;
     record.contentScale = source->contentScale;
     record.appearance = source->appearance;
+    record.useGeneralAppearance = source->useGeneralAppearance;
     record.widgetState = EffectiveWidgetState(*source);
     return RestoreWidget(record, true);
 }
@@ -288,13 +327,15 @@ bool WidgetScene::AlignSelected(
 
 WidgetSceneSnapshot WidgetScene::Snapshot() const {
     WidgetSceneSnapshot snapshot;
+    snapshot.generalAppearance = generalAppearance_;
     snapshot.reserve(widgets_.size());
     for (const auto& widget : widgets_) {
         snapshot.push_back(WidgetPersistenceRecord{
             .instanceId = widget.instanceId, .typeId = widget.typeId, .monitorId = widget.monitorId,
             .layoutMode = widget.layoutMode, .grid = widget.grid, .free = widget.free,
             .locked = widget.locked, .contentScale = widget.contentScale,
-            .appearance = widget.appearance, .widgetState = EffectiveWidgetState(widget),
+            .appearance = widget.appearance, .useGeneralAppearance = widget.useGeneralAppearance,
+            .widgetState = EffectiveWidgetState(widget),
         });
     }
     return snapshot;
@@ -331,19 +372,12 @@ WidgetInstance* WidgetScene::RestoreWidget(const WidgetPersistenceRecord& record
     instance.locked = record.locked;
     instance.contentScale = std::isfinite(record.contentScale)
         ? std::clamp(record.contentScale, 0.25f, 4.0f) : 1.0f;
-    instance.appearance = record.appearance;
+    instance.useGeneralAppearance = record.useGeneralAppearance;
+    instance.appearance = instance.useGeneralAppearance ? generalAppearance_ : record.appearance;
     if (instance.appearance.surface == SurfaceMode::Frosted && !instance.appearance.glassEnabled) {
         instance.appearance.surface = SurfaceMode::Solid;
     }
-    instance.appearance.opacity = std::isfinite(instance.appearance.opacity)
-        ? std::clamp(instance.appearance.opacity, 0.0f, 1.0f) : 0.63f;
-    instance.appearance.blurRadius = std::isfinite(instance.appearance.blurRadius)
-        ? std::clamp(instance.appearance.blurRadius, 0.0f, 128.0f) : 18.0f;
-    instance.appearance.cornerRadius = std::isfinite(instance.appearance.cornerRadius)
-        ? std::clamp(instance.appearance.cornerRadius, 0.0f, 128.0f) : 24.0f;
-    instance.appearance.innerPadding = std::isfinite(instance.appearance.innerPadding)
-        ? std::clamp(instance.appearance.innerPadding, 0.0f, 64.0f) : 20.0f;
-    instance.appearance.glassEnabled = instance.appearance.surface == SurfaceMode::Frosted;
+    instance.appearance = SanitizeAppearance(std::move(instance.appearance));
     instance.preservedWidgetState = record.widgetState;
     instance.content = std::move(content);
     widgets_.push_back(std::move(instance));

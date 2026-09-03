@@ -19,10 +19,11 @@ public:
     [[nodiscard]] static WidgetDescriptor Descriptor();
 
 private:
-    HRESULT EnsureTextFormats(IDWriteFactory& factory) const;
+    HRESULT EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const;
 
     bool mondayFirst_{true};
     bool dimWeekends_{false};
+    mutable std::wstring formatFontFamily_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> monthFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> yearFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> weekdayFormat_;

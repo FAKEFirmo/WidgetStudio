@@ -302,10 +302,11 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
             Color(0.0f, 0.0f, 0.0f, light ? 0.14f : 0.22f), shadowBrush.GetAddressOf()))) {
         return;
     }
+    const float tintRed = static_cast<float>((widget.appearance.tintColor >> 16) & 0xFFu) / 255.0f;
+    const float tintGreen = static_cast<float>((widget.appearance.tintColor >> 8) & 0xFFu) / 255.0f;
+    const float tintBlue = static_cast<float>(widget.appearance.tintColor & 0xFFu) / 255.0f;
     if (FAILED(renderTarget_->CreateSolidColorBrush(
-            light
-                ? Color(0.94f, 0.95f, 0.96f, widget.appearance.opacity)
-                : Color(0.085f, 0.09f, 0.105f, widget.appearance.opacity),
+            Color(tintRed, tintGreen, tintBlue, widget.appearance.opacity),
             surfaceBrush.GetAddressOf()))) {
         return;
     }
@@ -342,6 +343,25 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
     }
 
     if (widget.content) {
+        FontFormatEntry& formats = fontFormats_[widget.appearance.fontFamily];
+        if (!formats.title || !formats.detail) {
+            formats = {};
+            HRESULT fontResult = resources_->DWriteFactory()->CreateTextFormat(
+                widget.appearance.fontFamily.c_str(), nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 18.0f, L"",
+                formats.title.GetAddressOf());
+            if (SUCCEEDED(fontResult)) {
+                fontResult = resources_->DWriteFactory()->CreateTextFormat(
+                    widget.appearance.fontFamily.c_str(), nullptr, DWRITE_FONT_WEIGHT_NORMAL,
+                    DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, 11.0f, L"",
+                    formats.detail.GetAddressOf());
+            }
+            if (FAILED(fontResult)) formats = {};
+        }
+        IDWriteTextFormat* titleFormat = formats.title
+            ? formats.title.Get() : resources_->LabelFormat();
+        IDWriteTextFormat* detailFormat = formats.detail
+            ? formats.detail.Get() : resources_->SmallFormat();
         const RectF contentBounds = WidgetVisualStyle::ContentBounds(rect, widget.appearance.innerPadding);
         const D2D1_RECT_F contentClip = ToD2D(contentBounds);
         renderTarget_->PushAxisAlignedClip(&contentClip, D2D1_ANTIALIAS_MODE_PER_PRIMITIVE);
@@ -350,10 +370,11 @@ void Renderer::DrawWidget(const WidgetInstance& widget, RectF rect, bool editMod
             .d2dFactory = *resources_->D2DFactory(),
             .dwriteFactory = *resources_->DWriteFactory(),
             .wicFactory = *resources_->WicFactory(),
-            .titleFormat = *resources_->LabelFormat(),
-            .detailFormat = *resources_->SmallFormat(),
+            .titleFormat = *titleFormat,
+            .detailFormat = *detailFormat,
             .bounds = contentBounds,
             .instanceId = widget.instanceId,
+            .fontFamily = widget.appearance.fontFamily,
             .contentScale = widget.contentScale,
             .lightAppearance = widget.appearance.mode == AppearanceMode::Light,
             .resourceGeneration = resourceGeneration_,

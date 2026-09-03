@@ -58,10 +58,15 @@ MusicComposition Composition(std::size_t profile) noexcept {
     }
 }
 
-HRESULT CreateFormat(IDWriteFactory& factory, float size, DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** format) {
-    HRESULT result = factory.CreateTextFormat(L"Segoe UI Variable", nullptr, weight,
+HRESULT CreateFormat(IDWriteFactory& factory, const wchar_t* family, float size,
+    DWRITE_FONT_WEIGHT weight, IDWriteTextFormat** format) {
+    HRESULT result = factory.CreateTextFormat(family, nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
-    if (FAILED(result)) result = factory.CreateTextFormat(L"Segoe UI", nullptr, weight,
+    if (FAILED(result) && wcscmp(family, L"Segoe UI Variable") != 0) {
+        result = factory.CreateTextFormat(L"Segoe UI Variable", nullptr, weight,
+            DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
+    }
+    if (FAILED(result) && wcscmp(family, L"Segoe UI") != 0) result = factory.CreateTextFormat(L"Segoe UI", nullptr, weight,
         DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, size, L"", format);
     return result;
 }
@@ -147,14 +152,18 @@ MusicWidget::MusicWidget(std::shared_ptr<MediaSessionService> mediaSession)
     if (mediaSession_) static_cast<void>(mediaSession_->Initialize());
 }
 
-HRESULT MusicWidget::EnsureTextFormats(IDWriteFactory& factory) const {
-    if (titleFormat_ && metadataFormat_ && smallFormat_) return S_OK;
+HRESULT MusicWidget::EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const {
+    if (titleFormat_ && metadataFormat_ && smallFormat_ && formatFontFamily_ == fontFamily) return S_OK;
     titleFormat_.Reset(); metadataFormat_.Reset(); smallFormat_.Reset();
-    HRESULT result = CreateFormat(factory, 18.0f, DWRITE_FONT_WEIGHT_SEMI_BOLD, titleFormat_.GetAddressOf());
+    formatFontFamily_ = fontFamily;
+    HRESULT result = CreateFormat(factory, formatFontFamily_.c_str(), 18.0f,
+        DWRITE_FONT_WEIGHT_SEMI_BOLD, titleFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, 13.0f, DWRITE_FONT_WEIGHT_NORMAL, metadataFormat_.GetAddressOf());
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 13.0f,
+        DWRITE_FONT_WEIGHT_NORMAL, metadataFormat_.GetAddressOf());
     if (FAILED(result)) return result;
-    result = CreateFormat(factory, 10.0f, DWRITE_FONT_WEIGHT_NORMAL, smallFormat_.GetAddressOf());
+    result = CreateFormat(factory, formatFontFamily_.c_str(), 10.0f,
+        DWRITE_FONT_WEIGHT_NORMAL, smallFormat_.GetAddressOf());
     if (FAILED(result)) return result;
     const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
     for (IDWriteTextFormat* format : {titleFormat_.Get(), metadataFormat_.Get(), smallFormat_.Get()}) {
@@ -214,7 +223,7 @@ ID2D1Bitmap* MusicWidget::ArtworkFor(
 }
 
 void MusicWidget::Render(const WidgetRenderContext& context) const {
-    if (!mediaSession_ || FAILED(EnsureTextFormats(context.dwriteFactory))) return;
+    if (!mediaSession_ || FAILED(EnsureTextFormats(context.dwriteFactory, context.fontFamily))) return;
     const MediaSessionSnapshot snapshot = mediaSession_->Snapshot();
     const AuthoredLayoutResult fit = AuthoredContentLayout::Fit(
         kProfiles, context.bounds, currentProfile_, context.contentScale);

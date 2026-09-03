@@ -287,6 +287,7 @@ FreePlacement ReadFree(JsonReader& reader) {
 WidgetAppearance ReadAppearance(JsonReader& reader) {
     WidgetAppearance appearance{};
     bool surfaceRead = false;
+    bool tintRead = false;
     bool legacyGlass = appearance.glassEnabled;
     ReadObject(reader, [&](const std::string& key) {
         if (key == "mode") {
@@ -308,15 +309,24 @@ WidgetAppearance ReadAppearance(JsonReader& reader) {
         else if (key == "innerPadding") appearance.innerPadding = static_cast<float>(reader.ReadNumber());
         else if (key == "border") appearance.borderEnabled = reader.ReadBoolean();
         else if (key == "shadow") appearance.shadowEnabled = reader.ReadBoolean();
+        else if (key == "fontFamily") appearance.fontFamily = FromUtf8(reader.ReadString());
+        else if (key == "tintColor") {
+            const int tint = reader.ReadInteger();
+            if (tint < 0 || tint > 0x00FFFFFF) throw std::runtime_error("Invalid tint color");
+            appearance.tintColor = static_cast<std::uint32_t>(tint);
+            tintRead = true;
+        }
         else reader.SkipValue();
     });
     if (!surfaceRead) appearance.surface = legacyGlass ? SurfaceMode::Frosted : SurfaceMode::Solid;
+    if (!tintRead && appearance.mode == AppearanceMode::Light) appearance.tintColor = 0xF0F2F5;
     appearance.glassEnabled = appearance.surface == SurfaceMode::Frosted;
     if (appearance.opacity < 0.0f || appearance.opacity > 1.0f || appearance.blurRadius < 0.0f ||
         appearance.cornerRadius < 0.0f || appearance.innerPadding < 0.0f ||
         !std::isfinite(appearance.opacity) ||
         !std::isfinite(appearance.blurRadius) || !std::isfinite(appearance.cornerRadius) ||
-        !std::isfinite(appearance.innerPadding)) {
+        !std::isfinite(appearance.innerPadding) || appearance.fontFamily.empty() ||
+        appearance.fontFamily.size() > 128) {
         throw std::runtime_error("Invalid appearance values");
     }
     return appearance;
@@ -346,6 +356,7 @@ WidgetPersistenceRecord ReadWidget(JsonReader& reader) {
         else if (key == "locked") record.locked = reader.ReadBoolean();
         else if (key == "contentScale") record.contentScale = static_cast<float>(reader.ReadNumber());
         else if (key == "appearance") record.appearance = ReadAppearance(reader);
+        else if (key == "useGeneralAppearance") record.useGeneralAppearance = reader.ReadBoolean();
         else if (key == "state") record.widgetState = ReadState(reader);
         else reader.SkipValue();
     });
@@ -361,6 +372,24 @@ std::wstring ErrorToWide(const std::exception& error) {
     return std::wstring(message.begin(), message.end());
 }
 
+bool IsValidAppearance(const WidgetAppearance& appearance) {
+    return std::isfinite(appearance.opacity) && appearance.opacity >= 0.0f &&
+        appearance.opacity <= 1.0f && std::isfinite(appearance.blurRadius) &&
+        appearance.blurRadius >= 0.0f && std::isfinite(appearance.cornerRadius) &&
+        appearance.cornerRadius >= 0.0f && std::isfinite(appearance.innerPadding) &&
+        appearance.innerPadding >= 0.0f && !appearance.fontFamily.empty() &&
+        appearance.fontFamily.size() <= 128 && appearance.tintColor <= 0x00FFFFFFu;
+}
+
+bool SameAppearance(const WidgetAppearance& left, const WidgetAppearance& right) {
+    return left.mode == right.mode && left.surface == right.surface &&
+        left.glassEnabled == right.glassEnabled && left.opacity == right.opacity &&
+        left.blurRadius == right.blurRadius && left.cornerRadius == right.cornerRadius &&
+        left.innerPadding == right.innerPadding && left.borderEnabled == right.borderEnabled &&
+        left.shadowEnabled == right.shadowEnabled && left.fontFamily == right.fontFamily &&
+        left.tintColor == right.tintColor;
+}
+
 void ValidateForEncoding(const WidgetPersistenceRecord& record) {
     static_cast<void>(FromUtf8(record.instanceId));
     static_cast<void>(FromUtf8(record.typeId));
@@ -370,27 +399,47 @@ void ValidateForEncoding(const WidgetPersistenceRecord& record) {
         !std::isfinite(record.free.width) || !std::isfinite(record.free.height) ||
         record.free.width <= 0.0f || record.free.height <= 0.0f ||
         !std::isfinite(record.contentScale) || record.contentScale <= 0.0f ||
-        !std::isfinite(record.appearance.opacity) || record.appearance.opacity < 0.0f ||
-        record.appearance.opacity > 1.0f || !std::isfinite(record.appearance.blurRadius) ||
-        record.appearance.blurRadius < 0.0f || !std::isfinite(record.appearance.cornerRadius) ||
-        record.appearance.cornerRadius < 0.0f || !std::isfinite(record.appearance.innerPadding) ||
-        record.appearance.innerPadding < 0.0f) {
+        !IsValidAppearance(record.appearance)) {
         throw std::runtime_error("Scene contains invalid widget values");
     }
+}
+
+void WriteAppearance(std::ostringstream& output, const WidgetAppearance& appearance) {
+    const SurfaceMode surface = appearance.surface == SurfaceMode::Frosted &&
+        !appearance.glassEnabled ? SurfaceMode::Solid : appearance.surface;
+    output << "{\"mode\": \""
+           << (appearance.mode == AppearanceMode::Dark ? "dark" : "light")
+           << "\", \"surface\": \""
+           << (surface == SurfaceMode::Frosted ? "frosted" :
+               surface == SurfaceMode::Transparent ? "transparent" : "solid")
+           << "\", \"glass\": " << (surface == SurfaceMode::Frosted ? "true" : "false")
+           << ", \"opacity\": " << appearance.opacity
+           << ", \"blurRadius\": " << appearance.blurRadius
+           << ", \"cornerRadius\": " << appearance.cornerRadius
+           << ", \"innerPadding\": " << appearance.innerPadding
+           << ", \"border\": " << (appearance.borderEnabled ? "true" : "false")
+           << ", \"shadow\": " << (appearance.shadowEnabled ? "true" : "false")
+           << ", \"fontFamily\": ";
+    WriteEscapedString(output, ToUtf8(appearance.fontFamily));
+    output << ", \"tintColor\": " << appearance.tintColor << '}';
 }
 
 } // namespace
 
 std::string SceneJsonCodec::Encode(const WidgetSceneSnapshot& snapshot) {
+    if (!IsValidAppearance(snapshot.generalAppearance)) {
+        throw std::runtime_error("Scene contains invalid general appearance values");
+    }
     std::ostringstream output;
     output.imbue(std::locale::classic());
     output << std::setprecision(std::numeric_limits<float>::max_digits10);
-    output << "{\n  \"schemaVersion\": " << kCurrentSchemaVersion << ",\n  \"widgets\": [";
+    output << "{\n  \"schemaVersion\": " << kCurrentSchemaVersion
+           << ",\n  \"generalAppearance\": ";
+    WriteAppearance(output, snapshot.generalAppearance);
+    output << ",\n  \"widgets\": [";
     for (std::size_t index = 0; index < snapshot.size(); ++index) {
         const auto& widget = snapshot[index];
         ValidateForEncoding(widget);
-        const SurfaceMode surface = widget.appearance.surface == SurfaceMode::Frosted &&
-            !widget.appearance.glassEnabled ? SurfaceMode::Solid : widget.appearance.surface;
         output << (index == 0 ? "\n" : ",\n") << "    {\n      \"instanceId\": ";
         WriteEscapedString(output, widget.instanceId);
         output << ",\n      \"typeId\": "; WriteEscapedString(output, widget.typeId);
@@ -404,19 +453,12 @@ std::string SceneJsonCodec::Encode(const WidgetSceneSnapshot& snapshot) {
         output << "\n      \"free\": {\"x\": " << widget.free.x << ", \"y\": " << widget.free.y
                << ", \"width\": " << widget.free.width << ", \"height\": " << widget.free.height << "},";
         output << "\n      \"locked\": " << (widget.locked ? "true" : "false")
-               << ",\n      \"contentScale\": " << widget.contentScale;
-        output << ",\n      \"appearance\": {\"mode\": \""
-               << (widget.appearance.mode == AppearanceMode::Dark ? "dark" : "light")
-               << "\", \"surface\": \""
-               << (surface == SurfaceMode::Frosted ? "frosted" :
-                   surface == SurfaceMode::Transparent ? "transparent" : "solid")
-               << "\", \"glass\": " << (surface == SurfaceMode::Frosted ? "true" : "false")
-               << ", \"opacity\": " << widget.appearance.opacity
-               << ", \"blurRadius\": " << widget.appearance.blurRadius
-               << ", \"cornerRadius\": " << widget.appearance.cornerRadius
-               << ", \"innerPadding\": " << widget.appearance.innerPadding
-               << ", \"border\": " << (widget.appearance.borderEnabled ? "true" : "false")
-               << ", \"shadow\": " << (widget.appearance.shadowEnabled ? "true" : "false") << "},";
+               << ",\n      \"contentScale\": " << widget.contentScale
+               << ",\n      \"useGeneralAppearance\": "
+               << (widget.useGeneralAppearance ? "true" : "false")
+               << ",\n      \"appearance\": ";
+        WriteAppearance(output, widget.appearance);
+        output << ',';
         output << "\n      \"state\": {";
         std::size_t stateIndex{};
         for (const auto& [key, value] : widget.widgetState) {
@@ -443,6 +485,8 @@ std::optional<DecodedScene> SceneJsonCodec::Decode(
             if (key == "schemaVersion") {
                 scene.schemaVersion = reader.ReadInteger();
                 hasVersion = true;
+            } else if (key == "generalAppearance") {
+                scene.generalAppearance = ReadAppearance(reader);
             } else if (key == "widgets") {
                 reader.Expect('[');
                 if (!reader.Consume(']')) {
@@ -459,12 +503,23 @@ std::optional<DecodedScene> SceneJsonCodec::Decode(
         if (scene.schemaVersion < 0 || scene.schemaVersion > kCurrentSchemaVersion) {
             throw std::runtime_error("Unsupported scene schema version");
         }
+        if (scene.schemaVersion < 2 && !scene.widgets.empty()) {
+            // Preserve the old scene exactly while treating its first common
+            // appearance as the new general default. Matching widgets join the
+            // general group; genuinely customized widgets remain opted out.
+            scene.generalAppearance = scene.widgets.front().appearance;
+        }
         for (auto& widget : scene.widgets) {
             static_cast<void>(FromUtf8(widget.instanceId));
             static_cast<void>(FromUtf8(widget.typeId));
             if (scene.schemaVersion == 0 && widget.monitorId.empty()) widget.monitorId = L"primary";
+            if (scene.schemaVersion < 2) {
+                widget.useGeneralAppearance = SameAppearance(
+                    widget.appearance, scene.generalAppearance);
+            }
             if (widget.monitorId.empty()) throw std::runtime_error("Widget record is missing required values");
         }
+        scene.widgets.generalAppearance = scene.generalAppearance;
         scene.schemaVersion = kCurrentSchemaVersion;
         std::set<std::string> instanceIds;
         for (const auto& widget : scene.widgets) {

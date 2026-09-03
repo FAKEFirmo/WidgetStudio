@@ -19,14 +19,14 @@ public:
     [[nodiscard]] static WidgetDescriptor Descriptor();
 
 private:
-    HRESULT EnsureTextFormats(IDWriteFactory& factory) const;
+    HRESULT EnsureTextFormats(IDWriteFactory& factory, std::wstring_view fontFamily) const;
 
     bool use24Hour_{true};
     bool showSeconds_{false};
     bool showDivider_{true};
     bool showDate_{true};
     std::wstring dateFormat_{L"long"};
-    std::wstring fontFamily_{L"Segoe UI Variable"};
+    mutable std::wstring formatFontFamily_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> timeFormat_;
     mutable Microsoft::WRL::ComPtr<IDWriteTextFormat> dateTextFormat_;
 };
